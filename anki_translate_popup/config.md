@@ -494,6 +494,27 @@ not installed, the add-on falls back to `speech_language` matching.
 
 **Default:** `""` (empty)
 
+### `speak_only_language`
+
+Hold **automatic** pronunciation to one language. Empty — the default — speaks
+everything.
+
+A German deck whose backs are English definitions does not need the definition
+read out: set `"de"` and only the German is spoken, whether it is a whole card
+side or one line of a mixed one. It is also the answer to a language being
+misidentified — an English line wrongly called German is simply not spoken,
+rather than spoken wrongly.
+
+Only automatic speech is filtered. Pressing **Pronounce**, or a pronounce key,
+speaks whatever is there: asking out loud is the explicit answer to the
+question this setting asks in general.
+
+Regions count as their language, so `"de"` still allows a `de-AT` voice.
+
+Also on the gear menu, as *Speak only*, with **All** at the top of the list.
+
+**Default:** `""` (every language)
+
 ### `voice_gender`
 
 Which voice to prefer when a language offers more than one: `female`, `male`,

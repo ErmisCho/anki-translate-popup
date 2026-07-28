@@ -478,6 +478,10 @@ Set up a deck with German cards, then work through these.
 - [ ] `source_language: "auto"` on an English deck → the card is spoken in English, not the `speech_language` German
 - [ ] A card reading `die Aktie, -n` under an `auto` pair → spoken as German, not as English
 - [ ] A card with a German line then an English line, `card_speech_scope: full` → each line in its own voice
+- [ ] Gear → **Speak only** → *DE* → the English line is skipped, the German still spoken
+- [ ] With that set, press **Pronounce** on English text → it is spoken: an explicit ask is never filtered
+- [ ] Gear → **Speak only** → *All* → both lines spoken again
+- [ ] `debug_logging: true` → the log names each line and the language chosen for it
 - [ ] A card of three German lines → still one clip, not three
 - [ ] Same card again → spoken with no second detection request (check the log with `debug_logging: true`)
 - [ ] `source_language: "auto"` with no network → the card still speaks, using `speech_language`

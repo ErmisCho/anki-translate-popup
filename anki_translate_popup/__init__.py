@@ -419,6 +419,7 @@ _TOGGLEABLE_OPTIONS = (
 _LANGUAGE_OPTIONS = (
     "front_speech_language",
     "back_speech_language",
+    "speak_only_language",
 )
 
 #: Gear settings that are a fixed choice rather than a language. Same string
@@ -674,12 +675,21 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     needs_detection = config.speech_language_needs_detection(is_answer=is_answer)
 
     def op(_col: Any) -> List[str]:
+        segments = _speech_segments(config, lines, is_answer=is_answer)
+        for text, language in segments:
+            logger.debug("Card speech: %r -> %s", text[:60], language)
+        # Automatic only: pressing a pronounce key is an explicit request and
+        # reaches _synthesize_blocking without passing through here.
         return [
             _synthesize_blocking(text, language)
-            for text, language in _speech_segments(config, lines, is_answer=is_answer)
+            for text, language in segments
+            if config.speaks_language(language)
         ]
 
     def success(paths: List[str]) -> None:
+        if not paths:
+            logger.debug("Nothing on this side is in the language set to be spoken")
+            return
         from anki.sound import SoundOrVideoTag
         from aqt.sound import av_player
 

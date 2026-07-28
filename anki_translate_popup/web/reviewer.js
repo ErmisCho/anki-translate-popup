@@ -24,6 +24,7 @@
         speechLanguage: "de-DE",
         ttsProvider: "google_unofficial",
         voiceGender: "female",
+        speakOnlyLanguage: "",
         preferredVoice: "",
         speechRate: 0.9,
         fontSize: 14,
@@ -474,6 +475,12 @@
             },
         },
         {
+            key: "speak_only_language",
+            field: "speakOnlyLanguage",
+            label: "Speak only",
+            names: { "": "All" },
+        },
+        {
             key: "voice_gender",
             field: "voiceGender",
             label: "Prefer a voice",
@@ -531,11 +538,19 @@
         if (item.options) {
             return item.options.slice();
         }
-        var options = ["auto"].concat(languageOptions("voice"));
-        if (current !== "auto" && options.indexOf(current) === -1) {
+        // "Auto" for a voice row means follow the pair; "All" for Speak only
+        // means do not filter. Same shape, opposite words, so the row says.
+        var blank = rowBlank(item);
+        var options = [blank].concat(languageOptions("voice"));
+        if (current !== blank && options.indexOf(current) === -1) {
             options.push(current); // never hide the value that is actually set
         }
         return options;
+    }
+
+    /** The code a row uses for "nothing chosen": "auto" unless it says otherwise. */
+    function rowBlank(item) {
+        return item.names && item.names[""] !== undefined ? "" : "auto";
     }
 
     /**
@@ -544,7 +559,7 @@
      * picking a language or pressing Escape returns to the settings list.
      */
     function openVoicePicker(voice) {
-        var fallback = voice.options ? voice.options[0] : "auto";
+        var fallback = voice.options ? voice.options[0] : rowBlank(voice);
         var current = String(config[voice.field] || fallback).toLowerCase();
         el.menu.textContent = "";
         el.menu.className = "atp-menu"; // a language list scrolls, unlike the settings
@@ -771,7 +786,7 @@
             requestTranslation();
         }
         if (config.autoPronounce) {
-            pronounce();
+            pronounce(true);
         }
     }
 
@@ -902,8 +917,9 @@
         // Speech held back for the language now has it - or knows it never
         // arrived, in which case it falls back rather than staying silent.
         if (speakWhenDetected) {
+            var automatic = speakWhenDetected === "auto";
             speakWhenDetected = false;
-            pronounce();
+            pronounce(automatic);
         }
         // The popup was placed while empty; it is much taller now, so it has to
         // be re-anchored or a selection near the bottom pushes it off-screen.
@@ -1218,15 +1234,34 @@
         }
     }
 
-    function pronounce() {
+    /**
+     * ``automatic`` marks speech nobody asked for out loud - the selection
+     * being spoken as it is selected. Only that is filtered by
+     * speak_only_language: pressing Pronounce is the explicit answer to the
+     * question that setting asks.
+     */
+    function pronounce(automatic) {
         if (awaitingDetection()) {
             // Not a delay for its own sake: the language is seconds away and
             // speaking now would use the previous selection's.
-            speakWhenDetected = true;
+            speakWhenDetected = automatic ? "auto" : "explicit";
             setStatus("Detecting language…", "loading");
             return;
         }
-        speakText(selectedText, selectionSpeechLanguage());
+        var lang = selectionSpeechLanguage();
+        if (automatic && !speaksLanguage(lang)) {
+            log("not speaking", lang, "automatically");
+            return;
+        }
+        speakText(selectedText, lang);
+    }
+
+    /** Mirrors AddonConfig.speaks_language: empty means every language. */
+    function speaksLanguage(lang) {
+        if (!config.speakOnlyLanguage) {
+            return true;
+        }
+        return baseLanguage(lang) === baseLanguage(config.speakOnlyLanguage);
     }
 
     /**

@@ -62,6 +62,7 @@ DEFAULTS: Dict[str, Any] = {
     "auto_pronounce_answer": False,
     "card_speech_scope": "first-line",
     "voice_gender": "female",
+    "speak_only_language": "",
     "front_speech_language": "auto",
     "back_speech_language": "auto",
     "expand_abbreviations": True,
@@ -102,6 +103,7 @@ class AddonConfig:
     auto_pronounce_answer: bool
     card_speech_scope: str
     voice_gender: str
+    speak_only_language: str
     front_speech_language: str
     back_speech_language: str
     expand_abbreviations: bool
@@ -152,6 +154,17 @@ class AddonConfig:
         to ask the provider; the config has nothing left to offer.
         """
         return self._pair_speech_language(is_answer=is_answer) == "auto"
+
+    def speaks_language(self, lang: str) -> bool:
+        """Whether automatic speech is allowed to say something in ``lang``.
+
+        Explicit requests - the Pronounce button, the pronounce keys - are
+        never filtered by this. Asking for something out loud is the answer to
+        the question this setting exists to ask.
+        """
+        if not self.speak_only_language:
+            return True
+        return _base_language(lang) == _base_language(self.speak_only_language)
 
     def with_configured_region(self, lang: str) -> str:
         """Prefer the configured region for the same language: de -> de-AT.
@@ -206,6 +219,7 @@ class AddonConfig:
             "targetPickerLanguages": target_picker,
             "ttsProvider": self.tts_provider,
             "voiceGender": self.voice_gender,
+            "speakOnlyLanguage": self.speak_only_language,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
             "speechRate": self.speech_rate,
@@ -438,6 +452,14 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         )
         card_speech_scope = str(DEFAULTS["card_speech_scope"])
 
+    # Empty is the point of it: everything is spoken. Only a named language
+    # has to look like one.
+    speak_only_language = _require_str(raw, "speak_only_language", errors).strip()
+    if speak_only_language:
+        speak_only_language = _normalise_language(
+            speak_only_language, "speak_only_language", errors, allow_auto=False
+        )
+
     voice_gender = _require_str(raw, "voice_gender", errors).lower()
     if voice_gender not in VALID_VOICE_GENDERS:
         errors.append(
@@ -497,6 +519,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         auto_pronounce_answer=_require_bool(raw, "auto_pronounce_answer", errors),
         card_speech_scope=card_speech_scope,
         voice_gender=voice_gender,
+        speak_only_language=speak_only_language,
         front_speech_language=_normalise_language(
             _require_str(raw, "front_speech_language", errors),
             "front_speech_language",

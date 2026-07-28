@@ -467,6 +467,37 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class SpeakOnlyLanguageTest(unittest.TestCase):
+    """Automatic speech can be held to one language; asking out loud cannot."""
+
+    def config(self, **overrides):
+        return parse_config(dict(DEFAULTS, **overrides))
+
+    def test_empty_speaks_everything(self):
+        config = self.config()
+        self.assertTrue(config.speaks_language("de-DE"))
+        self.assertTrue(config.speaks_language("en"))
+
+    def test_a_named_language_excludes_the_others(self):
+        config = self.config(speak_only_language="de")
+        self.assertTrue(config.speaks_language("de"))
+        self.assertFalse(config.speaks_language("en"))
+
+    def test_regions_count_as_the_language(self):
+        """Choosing de must not exclude the de-AT voice it asked for."""
+        config = self.config(speak_only_language="de")
+        self.assertTrue(config.speaks_language("de-AT"))
+
+    def test_it_must_look_like_a_language(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            self.config(speak_only_language="German please")
+        self.assertIn("speak_only_language", str(ctx.exception))
+
+    def test_it_reaches_the_webview(self):
+        payload = self.config(speak_only_language="de").for_webview()
+        self.assertEqual(payload["speakOnlyLanguage"], "de")
+
+
 class SpeechSegmentTest(unittest.TestCase):
     """A card side is not one language, and a headword is not a sample."""
 

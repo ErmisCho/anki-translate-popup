@@ -24,6 +24,7 @@
     "auto_pronounce_answer": false,
     "card_speech_scope": "first-line",
     "voice_gender": "female",
+    "speak_only_language": "",
     "front_speech_language": "auto",
     "back_speech_language": "auto",
     "expand_abbreviations": true,
