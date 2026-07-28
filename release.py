@@ -115,7 +115,7 @@ def main(requested: str | None) -> int:
     tag = f"v{version}"
     if parse_version(version) <= parse_version(current):
         raise SystemExit(f"{version} is not newer than the released {current}")
-    print(f"releasing {current} -> {version}")
+    print(f"releasing {current} -> {version}", flush=True)
 
     tags = run("git", "tag", "--list", tag, capture=True)
     if tags:
@@ -132,7 +132,8 @@ def main(requested: str | None) -> int:
 
     run("git", "add", str(MANIFEST.relative_to(ROOT)))
     run("git", "commit", "-m", f"chore: release {tag}")
-    run("git", "tag", tag)
+    # Annotated, because --follow-tags leaves a lightweight tag behind.
+    run("git", "tag", "-a", tag, "-m", tag)
     run("git", "push", "--follow-tags")
     run("gh", "release", "create", tag, str(PACKAGE), "--title", tag, "--generate-notes")
 
