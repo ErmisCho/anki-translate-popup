@@ -49,6 +49,7 @@ DEFAULTS: Dict[str, Any] = {
     "lookup_shortcut": "Ctrl+Shift+T",
     "pronounce_prompt_shortcut": "x",
     "pronounce_answer_shortcut": "c",
+    "stop_speech_shortcut": "z",
     "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": True,
     "auto_pronounce": True,
@@ -86,6 +87,7 @@ class AddonConfig:
     lookup_shortcut: str
     pronounce_prompt_shortcut: str
     pronounce_answer_shortcut: str
+    stop_speech_shortcut: str
     picker_languages: Tuple[str, ...]
     auto_translate: bool
     auto_pronounce: bool
@@ -153,6 +155,7 @@ class AddonConfig:
             "lookupShortcut": self.lookup_shortcut,
             "pronouncePromptShortcut": self.pronounce_prompt_shortcut,
             "pronounceAnswerShortcut": self.pronounce_answer_shortcut,
+            "stopSpeechShortcut": self.stop_speech_shortcut,
             "pickerLanguages": list(self.picker_languages),
             "ttsProvider": self.tts_provider,
             "speechLanguage": self.speech_language,
@@ -367,6 +370,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         lookup_shortcut=_require_str(raw, "lookup_shortcut", errors),
         pronounce_prompt_shortcut=_require_str(raw, "pronounce_prompt_shortcut", errors),
         pronounce_answer_shortcut=_require_str(raw, "pronounce_answer_shortcut", errors),
+        stop_speech_shortcut=_require_str(raw, "stop_speech_shortcut", errors),
         picker_languages=_require_language_list(raw, "picker_languages", errors),
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),

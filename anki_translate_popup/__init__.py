@@ -392,7 +392,9 @@ def _is_duplicate_card_side(card: Any, is_answer: bool, now: float) -> bool:
     return False
 
 
-def _push_card_text(card: Any, config: AddonConfig, *, is_answer: bool) -> None:
+def _push_card_text(
+    card: Any, config: AddonConfig, *, is_answer: bool, speak: str = ""
+) -> None:
     """Hand the current card's spoken text to the webview.
 
     Pushed on every card side rather than fetched when a key is pressed: the
@@ -411,7 +413,7 @@ def _push_card_text(card: Any, config: AddonConfig, *, is_answer: bool) -> None:
 
     first_line = config.speak_first_line_only
     try:
-        payload = {
+        payload: Dict[str, Any] = {
             "prompt": card_side_text(
                 card.question(), is_answer=False, first_line_only=first_line
             ),
@@ -427,10 +429,35 @@ def _push_card_text(card: Any, config: AddonConfig, *, is_answer: bool) -> None:
         logger.exception("Could not read the card text for the pronounce shortcuts")
         return
 
+    if speak:
+        payload["speak"] = speak
+
     web.eval(
         "globalThis.ankiTranslatePopup && "
         f"globalThis.ankiTranslatePopup.onCardText({_js_json(payload)});"
     )
+
+
+def _resend_card_text(speak: str) -> None:
+    """Answer a webview that asked for the current card's text.
+
+    The push in :func:`_push_card_text` happens once per card side, so anything
+    that rebuilds the reviewer page in between - a sync, the editor, an action
+    from the More menu - leaves the page holding nothing to say until the next
+    card. This is how it asks again instead of staying mute.
+    """
+    if speak not in ("prompt", "answer"):
+        logger.warning("Ignoring card_text request for unknown side %r", speak)
+        return
+    reviewer = getattr(mw, "reviewer", None)
+    card = getattr(reviewer, "card", None)
+    if card is None:
+        return
+    config, _ = _load_config()
+    # Ask the reviewer what is actually on screen rather than assuming: the
+    # answer must stay unsent while the user is still recalling it.
+    is_answer = getattr(reviewer, "state", "question") == "answer"
+    _push_card_text(card, config, is_answer=is_answer, speak=speak)
 
 
 def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
@@ -684,6 +711,10 @@ def on_js_message(
         from aqt.sound import av_player
 
         av_player.stop_and_clear_queue()
+        return True, None
+
+    if command == "card_text":
+        _resend_card_text(raw_payload.strip())
         return True, None
 
     if command == "set_languages":

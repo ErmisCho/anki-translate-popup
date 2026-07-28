@@ -371,6 +371,16 @@ headword.
 
 **Defaults:** `"x"` and `"c"`
 
+### `stop_speech_shortcut`
+
+Silences whatever is being spoken right now — a card that auto-pronounced
+itself, a selection, or either of the keys above.
+
+It stops that one clip and nothing else: the next card, and the next press of
+`x` or `c`, speak as usual. There is no muted state to remember to undo.
+
+**Default:** `"z"`
+
 ### `picker_languages`
 
 Languages offered in the dropdowns when you click **DE** or **EN** in the popup

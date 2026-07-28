@@ -543,5 +543,77 @@ class PushCardTextTest(unittest.TestCase):
             addon.on_reviewer_did_show_question(FakeCard())  # must not raise
 
 
+class ResendCardTextTest(unittest.TestCase):
+    """The page can lose the pushed text; asking again must work.
+
+    A sync, the editor and the More menu can all rebuild the reviewer page
+    between one card side and the next, which drops what Python pushed.
+    """
+
+    def setUp(self) -> None:
+        self.mw = mock.MagicMock()
+        patcher = mock.patch.object(addon, "mw", self.mw, create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mw.reviewer.card = FakeCard()
+
+    def configure(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return mock.patch.object(addon, "_raw_config", return_value=raw)
+
+    def pushed(self):
+        for call in reversed(self.mw.reviewer.web.eval.call_args_list):
+            script = call.args[0]
+            if "onCardText(" in script:
+                return json.loads(script.split("onCardText(", 1)[1].rsplit(");", 1)[0])
+        return None
+
+    def test_prompt_is_resent_and_marked_to_speak(self):
+        self.mw.reviewer.state = "question"
+        with self.configure():
+            addon._resend_card_text("prompt")
+        payload = self.pushed()
+        self.assertEqual(payload["prompt"], "Das Haus")
+        self.assertEqual(payload["speak"], "prompt")
+
+    def test_the_answer_is_withheld_while_the_question_is_showing(self):
+        """Asking must not become a way to hear the answer early."""
+        self.mw.reviewer.state = "question"
+        with self.configure():
+            addon._resend_card_text("answer")
+        self.assertEqual(self.pushed()["answer"], "")
+
+    def test_the_answer_is_sent_once_it_is_showing(self):
+        self.mw.reviewer.state = "answer"
+        with self.configure():
+            addon._resend_card_text("answer")
+        payload = self.pushed()
+        self.assertEqual(payload["answer"], "the house")
+        self.assertEqual(payload["speak"], "answer")
+
+    def test_an_unknown_side_is_refused(self):
+        with mock.patch.object(addon.logger, "warning") as warned:
+            addon._resend_card_text("everything")
+        self.assertIsNone(self.pushed())
+        warned.assert_called_once()
+
+    def test_no_card_is_survivable(self):
+        self.mw.reviewer.card = None
+        with self.configure():
+            addon._resend_card_text("prompt")  # between cards; must not raise
+        self.assertIsNone(self.pushed())
+
+    def test_the_bridge_command_routes_here(self):
+        self.mw.reviewer.state = "question"
+        with self.configure():
+            with mock.patch.object(addon, "_webview_for", return_value="WEB"):
+                handled = addon.on_js_message(
+                    (False, None), addon.BRIDGE_PREFIX + "card_text:prompt", None
+                )
+        self.assertEqual(handled, (True, None))
+        self.assertEqual(self.pushed()["speak"], "prompt")
+
+
 if __name__ == "__main__":
     unittest.main()

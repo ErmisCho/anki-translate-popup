@@ -35,6 +35,7 @@
         lookupShortcut: "Ctrl+Shift+T",
         pronouncePromptShortcut: "x",
         pronounceAnswerShortcut: "c",
+        stopSpeechShortcut: "z",
         frontSpeechLanguage: "auto",
         backSpeechLanguage: "auto",
         pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
@@ -792,6 +793,7 @@
         shortcut = parseShortcut(config.lookupShortcut);
         promptShortcut = parseShortcut(config.pronouncePromptShortcut);
         answerShortcut = parseShortcut(config.pronounceAnswerShortcut);
+        stopShortcut = parseShortcut(config.stopSpeechShortcut);
         if (popup) {
             applyFontSize();
             if (isOpen() && !lastTranslation) {
@@ -801,7 +803,7 @@
         log("config updated", config);
     }
 
-    /** Called from Python each time a card side is shown. */
+    /** Called from Python each time a card side is shown, and on request. */
     function onCardText(next) {
         cardText = {
             prompt: (next && next.prompt) || "",
@@ -810,6 +812,20 @@
             answerLang: (next && next.answerLang) || "",
         };
         log("card text", cardText);
+
+        // Answering a request made because a key was pressed with nothing to
+        // say. Speak straight from here rather than calling speakCardSide
+        // again, which would ask a second time and never stop.
+        var wanted = (next && next.speak) || "";
+        if (!wanted) {
+            return;
+        }
+        var side = cardSide(wanted);
+        if (side.text) {
+            speakText(side.text, side.lang);
+        } else {
+            log("nothing to speak for the", wanted, "side");
+        }
     }
 
     // -- pronunciation --------------------------------------------------------
@@ -823,6 +839,20 @@
         // Only reach across the bridge if online audio could actually be playing.
         if (onlineSpeechActive && typeof pycmd === "function") {
             onlineSpeechActive = false;
+            pycmd(BRIDGE + "stop_speech:");
+        }
+    }
+
+    /**
+     * The stop key. Silences what is playing now and nothing more - the next
+     * card, or the next press of a pronounce key, speaks as usual.
+     */
+    function stopAllSpeech() {
+        stopSpeech();
+        // Unconditional, unlike stopSpeech: card auto-pronounce is queued by
+        // Python without the webview ever knowing, so onlineSpeechActive is
+        // false for exactly the audio the user most wants to cut off.
+        if (typeof pycmd === "function") {
             pycmd(BRIDGE + "stop_speech:");
         }
     }
@@ -1070,6 +1100,12 @@
             };
 
             activeUtterance = utterance;
+            // Chromium leaves speechSynthesis paused when the page is put in
+            // the background - a sync, the editor and the More menu all do
+            // that - and nothing resumes it, so every later speak() queues
+            // silently and the voice never comes back. A no-op when it is not
+            // paused, so it is safe to call on every utterance.
+            synth.resume();
             synth.speak(utterance);
         });
     }
@@ -1303,6 +1339,7 @@
     var shortcut = parseShortcut(config.lookupShortcut);
     var promptShortcut = parseShortcut(config.pronouncePromptShortcut);
     var answerShortcut = parseShortcut(config.pronounceAnswerShortcut);
+    var stopShortcut = parseShortcut(config.stopSpeechShortcut);
 
     function matchesShortcut(event, combo) {
         if (!combo) {
@@ -1329,17 +1366,30 @@
         return tag === "input" || tag === "textarea" || !!node.isContentEditable;
     }
 
-    /** Speak one side of the card on screen, if Python has sent it yet. */
-    function speakCardSide(side) {
+    /** The text and language Python last sent for one side of the card. */
+    function cardSide(side) {
         var answer = side === "answer";
-        var text = answer ? cardText.answer : cardText.prompt;
-        if (!text) {
-            // Silent on purpose: with the answer still hidden there is nothing
-            // to say, and saying it would give away what is being recalled.
-            log("no card text for the", side, "side");
+        return {
+            text: answer ? cardText.answer : cardText.prompt,
+            lang: answer ? cardText.answerLang : cardText.promptLang,
+        };
+    }
+
+    /** Speak one side of the card on screen. */
+    function speakCardSide(side) {
+        var wanted = cardSide(side);
+        if (wanted.text) {
+            speakText(wanted.text, wanted.lang);
             return;
         }
-        speakText(text, answer ? cardText.answerLang : cardText.promptLang);
+        // Nothing to say - either the answer is still hidden, or this page was
+        // rebuilt since Python last pushed the text, which a sync, the editor
+        // and the More menu all do. Ask again rather than staying mute until
+        // the next card; Python decides whether the answer may be sent yet.
+        if (typeof pycmd === "function") {
+            log("no card text for the", side, "side - asking Python");
+            pycmd(BRIDGE + "card_text:" + side);
+        }
     }
 
     function handleKeyDown(event) {
@@ -1365,12 +1415,20 @@
         // the configured shortcuts - Anki's reviewer keys must keep working.
         if (matchesShortcut(event, promptShortcut)) {
             event.preventDefault();
+            log("shortcut: pronounce prompt");
             speakCardSide("prompt");
             return;
         }
         if (matchesShortcut(event, answerShortcut)) {
             event.preventDefault();
+            log("shortcut: pronounce answer");
             speakCardSide("answer");
+            return;
+        }
+        if (matchesShortcut(event, stopShortcut)) {
+            event.preventDefault();
+            log("shortcut: stop speech");
+            stopAllSpeech();
             return;
         }
         if (matchesShortcut(event, shortcut)) {

@@ -15,6 +15,7 @@
     "lookup_shortcut": "Ctrl+Shift+T",
     "pronounce_prompt_shortcut": "x",
     "pronounce_answer_shortcut": "c",
+    "stop_speech_shortcut": "z",
     "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": true,
     "auto_pronounce": true,

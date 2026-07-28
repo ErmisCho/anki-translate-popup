@@ -99,6 +99,53 @@ This is also the gear menu's first non-boolean setting. `set_option` takes the
 type from the key rather than the payload, so a webview sending a string at a
 toggle still cannot store one.
 
+### 14. Speech dies after a sync, an edit, or the More menu
+
+**Partly fixed — needs a report from a real Anki to finish.**
+
+Reported: after syncing, editing a card, or using the **More** menu,
+pronunciation stops and never starts again. Could not be reproduced here (no
+Anki in this environment), so this was attacked as three separate causes, two
+of which are provable from the code and are now fixed.
+
+**Fixed — the page loses the pushed text.** Item 12 pushes each card side's
+text into the webview once, as it appears. Anything that rebuilds the reviewer
+page after that push leaves the page holding nothing to say, with no way to ask
+for it, so `x` and `c` stay dead until the *next* card. The page now asks
+Python for the text when it has none (`card_text` bridge command). Python
+answers from `mw.reviewer.card` and, crucially, decides for itself whether the
+answer may be sent — asking is not a way to hear the answer early.
+
+**Fixed — Chromium leaves `speechSynthesis` paused.** Backgrounding the page
+pauses the synthesiser, and nothing resumes it, so every later `speak()` queues
+silently. A sync dialog, the editor and the More menu all background the page.
+`synth.resume()` now runs before each utterance; it is a no-op when nothing is
+paused.
+
+**Open — the webview may simply not have keyboard focus.** All three actions
+move focus to a Qt widget, and the reviewer's webview may not get it back.
+Anki's own keys keep working because they are Qt shortcuts; ours are a `keydown`
+listener on the page, so they would go silently dead in exactly this pattern.
+Unproven, and the fix is structural: register the keys through
+`gui_hooks.state_shortcuts_will_change` as well, which costs the system-voice
+support that the webview path exists for.
+
+**How to tell them apart**, if it recurs: set `debug_logging: true`, press the
+key, open the console. A `shortcut:` line means the key arrived and this is not
+a focus problem. No line means the page never saw the key, and the remaining
+cause above is the one to build.
+
+### ✅ 15. A key to stop the current pronunciation
+
+`stop_speech_shortcut` (default `z`) silences whatever is speaking right now —
+an auto-pronounced card, a selection, or either pronounce key.
+
+It stops that one clip and nothing else: the next card and the next `x` or `c`
+speak as usual, so there is no muted state to undo. Unlike the internal stop
+used when one pronunciation supersedes another, it always reaches across the
+bridge, because card auto-pronounce is queued by Python without the webview
+knowing — which is exactly the audio a user most wants to cut off.
+
 ### ✅ 5. Keyboard shortcut
 
 `lookup_shortcut` (default `Ctrl+Shift+T`, `""` disables) re-opens the popup

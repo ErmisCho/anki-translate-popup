@@ -386,6 +386,19 @@ Set up a deck with German cards, then work through these.
 - [ ] Set `speech_language: de-AT` with a `de → en` pair → the front keeps the Austrian voice
 - [ ] Put `Gen.` on an English back → spoken as "gen", not "Genitiv"
 
+### Speech survives leaving the reviewer
+
+- [ ] While a card is being spoken, press **`z`** → audio stops at once
+- [ ] After `z`, press `x` → speaks again; `z` mutes nothing permanently
+- [ ] Let a card auto-pronounce, press `z` mid-clip → that clip stops too
+- [ ] **Sync**, return to the card, press `x` → still speaks
+- [ ] **Edit** the card, close the editor, press `x` → still speaks, with the edited text
+- [ ] Open **More**, pick an action, press `x` → still speaks
+- [ ] Same three, but let the card auto-pronounce instead of pressing a key → still speaks
+- [ ] If a key ever goes dead: set `debug_logging: true`, press it, and check the console —
+      a `shortcut:` line means the key arrived and the fault is downstream; no line
+      means the webview never saw it (focus), which is a different bug
+
 ### No interference with Anki
 
 - [ ] **Space / Enter** still shows the answer and answers the card
