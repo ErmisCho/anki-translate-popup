@@ -356,10 +356,11 @@ Set up a deck with German cards, then work through these.
 - [ ] **Click outside** → popup closes
 - [ ] Click **×** → popup closes
 - [ ] Hover the speaker and clipboard icons → tooltips read *Pronounce* and *Copy*
-- [ ] Click the **gear** → four toggles with ticks matching the current config
+- [ ] Click the **gear** → every switch and both voice rows are visible at once, no scrolling, ticks matching the current config
 - [ ] Flip a toggle → tick changes, menu stays open, setting persists after reopening the popup
 - [ ] Flip one in the gear, then check Tools → Add-ons → Config → the same value is there
 - [ ] Escape with the gear menu open → closes the menu only; a second Escape closes the popup
+- [ ] Open the gear near the **bottom of the window** → the menu flips above the icon rather than overflowing
 - [ ] Click the clipboard → turns into a tick for ~1s, then back; paste elsewhere to confirm
 - [ ] Select text *inside* the popup → popup does not reset
 - [ ] Resize the window while open → popup closes cleanly
@@ -388,8 +389,8 @@ Set up a deck with German cards, then work through these.
 - [ ] Set `pronounce_answer_shortcut: ""` → `c` does nothing, `x` still works
 - [ ] With a `de → en` pair, press `x` then `c` → German voice for the front, English voice for the back
 - [ ] Swap the pair in the header, then press `x` → the voice swaps with it
-- [ ] Gear → **Back voice** → pick a language → it sticks, and the row shows it
-- [ ] Gear → **Back voice** → **Auto** → follows the pair again
+- [ ] Gear → **Voice for the back** → pick a language → it sticks, and the row shows it
+- [ ] Gear → **Voice for the back** → **Auto** → follows the pair again
 - [ ] Set `speech_language: de-AT` with a `de → en` pair → the front keeps the Austrian voice
 - [ ] Put `Gen.` on an English back → spoken as "gen", not "Genitiv"
 
@@ -454,13 +455,17 @@ Set up a deck with German cards, then work through these.
 - [ ] Reveal the answer → the **answer only** is spoken, not the question again
 - [ ] Same card side re-rendering → spoken once, not twice
 - [ ] A card with its own `[sound:]` audio → Anki's clip plays first, the spoken text follows, neither is cut off
-- [ ] Turn *Auto-pronounce card* off in the gear → next card is silent
+- [ ] Turn *Speak the card as it appears* off in the gear → next card is silent
 - [ ] Set `tts_provider: "system"` → card auto-pronounce stops (needs a user gesture the browser will not grant)
 - [ ] Default (`tts_provider: "auto"`), **no German voice installed** → German audio is heard, status says *Spoken by Google (online voice)*
 - [ ] Press Pronounce again on the same text → instant (served from `user_files/tts/`)
 - [ ] With a **German system voice installed** → uses it, status names the voice, nothing goes online
 - [ ] Press Pronounce **twice quickly** → the first stops, no overlap
 - [ ] Pronounce **after translating** → the **original German** is spoken, not the English
+- [ ] Set the pair to **EN → EN** and press Pronounce → an English voice speaks it, not the German one
+- [ ] Set `speech_language: "de-AT"` with a **DE → EN** pair → still the Austrian voice, not a bare `de` one
+- [ ] Source **auto**, select German, translate, then Pronounce → the detected language picks the voice
+- [ ] Change the pair in the header, then press Pronounce immediately → the new language is used, not the old
 - [ ] Set `tts_provider: "system"` with no German voice → clear message, nothing sent anywhere
 - [ ] Set `tts_provider: "system"`, turn off Wi-Fi → still works if a voice exists
 - [ ] Set `tts_provider: "google_unofficial"`, turn off Wi-Fi → clear *could not reach* message

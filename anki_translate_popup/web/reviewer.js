@@ -373,6 +373,8 @@
         ).toLowerCase();
 
         el.menu.textContent = "";
+        el.menu.className = "atp-menu"; // drop the settings menu's full height
+        clearMenuHeightOverride();
         el.menu.setAttribute("role", "listbox"); // the settings menu sets "menu"
         languageOptions(which).forEach(function (code) {
             var item = document.createElement("div");
@@ -428,12 +430,12 @@
      * a wrong name here is refused rather than written.
      */
     var SETTING_ITEMS = [
-        { key: "auto_translate", field: "autoTranslate", label: "Auto-translate selection" },
-        { key: "auto_pronounce", field: "autoPronounce", label: "Auto-pronounce selection" },
-        { key: "auto_pronounce_card", field: "autoPronounceCard", label: "Auto-pronounce card" },
-        { key: "auto_pronounce_answer", field: "autoPronounceAnswer", label: "…also the answer" },
+        { key: "auto_translate", field: "autoTranslate", label: "Translate on selection" },
+        { key: "auto_pronounce", field: "autoPronounce", label: "Speak on selection" },
+        { key: "auto_pronounce_card", field: "autoPronounceCard", label: "Speak the card as it appears" },
+        { key: "auto_pronounce_answer", field: "autoPronounceAnswer", label: "Also speak the answer" },
         { key: "expand_abbreviations", field: "expandAbbreviations", label: "Say Akk./Dat./Gen. in full" },
-        { key: "show_examples", field: "showExamples", label: "Show examples" },
+        { key: "show_examples", field: "showExamples", label: "Show example sentences" },
     ];
 
     /*
@@ -442,9 +444,37 @@
      * already declares - the front is the source language, the back the target.
      */
     var VOICE_ITEMS = [
-        { key: "front_speech_language", field: "frontSpeechLanguage", label: "Front voice" },
-        { key: "back_speech_language", field: "backSpeechLanguage", label: "Back voice" },
+        { key: "front_speech_language", field: "frontSpeechLanguage", label: "Voice for the front" },
+        { key: "back_speech_language", field: "backSpeechLanguage", label: "Voice for the back" },
     ];
+
+    /** The menu element is shared, so a height forced onto one must not outlive it. */
+    function clearMenuHeightOverride() {
+        el.menu.style.maxHeight = "";
+        el.menu.style.overflowY = "";
+    }
+
+    /**
+     * Drop an open menu above its trigger when it would otherwise run off the
+     * bottom of the window - the same flip the popup performs for a selection
+     * near the bottom edge. Only when there is room above: a menu taller than
+     * the window scrolls instead, which beats one whose top is unreachable.
+     */
+    function keepMenuOnScreen(trigger) {
+        var margin = 4;
+        clearMenuHeightOverride(); // measure the menu at its natural height
+        if (el.menu.getBoundingClientRect().bottom <= globalThis.innerHeight - margin) {
+            return;
+        }
+        var below = el.menu.style.top;
+        el.menu.style.top = trigger.offsetTop - el.menu.offsetHeight - margin + "px";
+        if (el.menu.getBoundingClientRect().top < margin) {
+            el.menu.style.top = below; // no room either way
+            el.menu.style.maxHeight =
+                globalThis.innerHeight - el.menu.getBoundingClientRect().top - margin + "px";
+            el.menu.style.overflowY = "auto";
+        }
+    }
 
     function toggleSettings() {
         if (pickerTrigger === el.settings) {
@@ -466,6 +496,7 @@
     function openVoicePicker(voice) {
         var current = String(config[voice.field] || "auto").toLowerCase();
         el.menu.textContent = "";
+        el.menu.className = "atp-menu"; // a language list scrolls, unlike the settings
         el.menu.setAttribute("role", "listbox");
 
         var options = ["auto"].concat(languageOptions("voice"));
@@ -499,6 +530,9 @@
     function openSettings() {
         closePicker();
         el.menu.textContent = "";
+        // Every switch visible at once: this list is short and fixed, unlike a
+        // language list, and a settings menu you have to scroll hides settings.
+        el.menu.className = "atp-menu atp-menu-settings";
         el.menu.setAttribute("role", "menu");
 
         SETTING_ITEMS.forEach(function (setting) {
@@ -565,6 +599,7 @@
         var left = el.settings.offsetLeft + el.settings.offsetWidth - el.menu.offsetWidth;
         el.menu.style.left = Math.max(0, Math.min(left, popup.clientWidth - el.menu.offsetWidth)) + "px";
         el.menu.style.top = el.settings.offsetTop + el.settings.offsetHeight + 4 + "px";
+        keepMenuOnScreen(el.settings);
         el.settings.setAttribute("aria-expanded", "true");
         pickerTrigger = el.settings;
     }
@@ -1029,7 +1064,34 @@
     }
 
     function pronounce() {
-        speakText(selectedText, config.speechLanguage);
+        speakText(selectedText, selectionSpeechLanguage());
+    }
+
+    /**
+     * Which language the selection is spoken in.
+     *
+     * The pair is what says the selection is German or English; speech_language
+     * is a single global that knows nothing about the deck in front of you, so
+     * reading the selection with it gives an EN -> EN pair a German voice.
+     *
+     * The configured language still wins when it is the same language, so a
+     * user who asked for de-AT keeps de-AT rather than the bare "de" a pair is
+     * written in. This mirrors AddonConfig.speech_language_for, which applies
+     * the same rule to the card sides; it is repeated here rather than pushed
+     * from Python because the header can change the pair between two keystrokes
+     * and a round trip would speak with the previous language.
+     */
+    function selectionSpeechLanguage() {
+        var source = config.sourceLanguage;
+        if (source === "auto") {
+            source = detectedSource; // whatever the provider last reported
+        }
+        if (!source || source === "auto") {
+            return config.speechLanguage; // nothing translated yet, nothing known
+        }
+        return baseLanguage(source) === baseLanguage(config.speechLanguage)
+            ? config.speechLanguage
+            : source;
     }
 
     /**
@@ -1477,6 +1539,7 @@
         // Exposed for manual poking from Anki's debug console.
         _pickVoice: pickVoice,
         _prepareSpeechText: prepareSpeechText,
+        _selectionSpeechLanguage: selectionSpeechLanguage,
     };
 
     log("initialised", config);

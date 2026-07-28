@@ -205,6 +205,17 @@
     display: none !important;
 }
 
+/*
+ * The settings menu is a short fixed list, so it shows every switch at once
+ * rather than scrolling; only a language list, which can run to dozens of
+ * entries, needs the cap above. keepMenuOnScreen() flips or caps it if the
+ * window is too short for the full height.
+ */
+.atp-popup .atp-menu-settings {
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
 .atp-popup .atp-menu-item {
     display: block !important;
     margin: 0 !important;

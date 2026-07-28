@@ -229,7 +229,7 @@ Also speak the answer side when you reveal it. Off by default: the answer is
 what you are trying to recall, so speaking it hands it to you.
 
 When on, only the part after the answer divider is spoken, never a repeat of
-the question. Also on the gear menu, as *…also the answer*.
+the question. Also on the gear menu, as *Also speak the answer*.
 
 **Default:** `false`
 
@@ -249,7 +249,7 @@ is the normal case — swap the pair and the voices swap with it. Pin a side whe
 your deck does not match, for instance a German deck you translate into English
 but whose backs are written in Greek.
 
-Both are on the **gear menu** as *Front voice* and *Back voice*, with **Auto**
+Both are on the **gear menu** as *Voice for the front* and *Voice for the back*, with **Auto**
 at the top of each list.
 
 Two details:
