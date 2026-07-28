@@ -50,6 +50,7 @@ hooks:
 | --- | --- |
 | `gui_hooks.webview_will_set_content` | Inject CSS/JS into the reviewer and previewer |
 | `gui_hooks.webview_did_receive_js_message` | Receive `pycmd()` calls |
+| `gui_hooks.state_shortcuts_will_change` / `focus_did_change` | Keep speech keys alive when reviewer focus moves to Qt |
 | `AddonManager.setWebExports` | Serve `web/` under `/_addons/` |
 | `AddonManager.getConfig` / `setConfigUpdatedAction` | Configuration |
 | `AddonManager.get_logger` | Add-on-scoped logging |
@@ -169,8 +170,12 @@ No text leaves your machine.
 
 ### Privacy summary
 
-Text is transmitted **only when you press Translate**. Selecting text, pressing
-Pronounce, and pressing Copy are entirely local.
+With the default `auto_translate: true`, selected text is transmitted as soon
+as you select it. `auto_pronounce` may also fetch online audio when no matching
+system voice exists. Turn both off for click-to-act behavior. Copy is always
+local. DeepL and LibreTranslate probe their language-list API when the reviewer
+opens; this sends no card text, though DeepL authenticates the probe with your
+API key.
 
 | Provider | Where text goes |
 | --- | --- |
@@ -192,7 +197,7 @@ anki_translate_popup/
 ├── config.json          Defaults
 ├── config.md            User-facing option documentation
 ├── manifest.json        Add-on metadata
-├── cache.py             SQLite translation cache with TTL
+├── cache.py             SQLite translation/example cache with TTL
 ├── tts.py               Online speech, for languages with no usable voice
 ├── examples.py          Usage examples from the Tatoeba corpus
 ├── translation/
@@ -203,7 +208,7 @@ anki_translate_popup/
 ├── web/
 │   ├── reviewer.js      Selection, popup, speech, clipboard
 │   └── reviewer.css     Popup styling, light + dark
-└── tests/               100 unit tests, no network
+└── tests/               Unit tests with all network calls stubbed
 ```
 
 ### Request flow
@@ -247,11 +252,10 @@ attribute holds the webview (`Reviewer.web` vs `Previewer._web`), which
 no card text, and the card-layout and note editors because they are text-editing
 surfaces where a selection popup would fight with typing.
 
-**Why the UI thread never blocks.** All network and SQLite work happens inside
-`QueryOp.op`, which Anki runs on a worker thread. `without_collection()` marks
-the operation as not needing the collection, so translations are not serialised
-behind other collection operations. The bridge handler itself returns
-immediately.
+**Why the UI thread never blocks.** Translation, Tatoeba, TTS, provider
+language-capability probes, and SQLite work happen inside `QueryOp.op`, which
+Anki runs on a worker thread. `without_collection()` keeps them from being
+serialised behind collection operations. Bridge handlers return immediately.
 
 **Why injection is safe.** `reviewer.js` writes every external value —
 the selection, the translation, error strings — with `textContent`, never
@@ -284,9 +288,9 @@ commits the transaction but does **not** close the connection — `cache.py` wra
 it so the handle is always released.
 
 **Adding a provider.** Subclass `Translator` in `translation/`, implement
-`translate()` and `validate()`, set `name` / `requires_api_key` /
-`privacy_note`, then register it in `PROVIDERS` and `build_translator()`. The
-popup, cache, bridge and threading need no changes.
+`translate()` / `validate()` and optionally `supported_languages()`, then
+register it in `PROVIDERS` and `build_translator()`. The popup, cache, bridge
+and threading need no changes.
 
 **Adding a TTS backend.** Subclass `TextToSpeech` in `tts.py` and implement
 `synthesize(text, lang) -> bytes`; the caching, playback and error plumbing in
@@ -300,7 +304,7 @@ as testable functions.
 
 ## Automated tests
 
-100 tests, no network access, no paid API calls — every HTTP call is stubbed.
+314 tests, no network access and no paid API calls — every HTTP call is stubbed.
 
 Run from the directory that *contains* `anki_translate_popup`:
 
@@ -319,10 +323,10 @@ Coverage:
 
 | File | Covers |
 | --- | --- |
-| `test_config.py` | Defaults, unknown provider, language-code normalisation, `auto` handling, type errors, range bounds, `true` not accepted as a number, all errors reported at once, API key never reaching the webview |
-| `test_cache.py` | Key stability and collision resistance, read/write, reopen, overwrite, provider scoping, German/emoji/CJK round-trips, TTL boundaries, `0` = never expire, purge, clear, corrupt-database resilience, connection-close regression |
-| `test_translation.py` | DeepL/LibreTranslate/Google parsing, free-vs-pro endpoint, auto-detection, malformed responses, HTTP 401/403/429/456/5xx mapping, timeouts, connection/SSL/DNS failures, timeout propagation, Unicode, provider gating, `</script>` escaping, U+2028/U+2029 escaping |
-| `test_examples.py` | ISO 639-1→3 mapping, word/phrase-vs-sentence gating, limit, entries with no matching translation, unsupported and `auto` languages skipping the request entirely, HTTP errors, malformed shapes, Unicode, markup returned verbatim |
+| `test_config.py` | Defaults, deck pairs, provider-filtered pickers, language-code normalisation, `auto`, type/range errors, API key never reaching the webview |
+| `test_cache.py` | Translation/example read/write and key scoping, Unicode, TTL and row limits, corrupt-database resilience, connection-close regression |
+| `test_translation.py` | Provider parsing/capabilities, DeepL Chinese aliases, auto-detection, malformed responses, HTTP status/network failures, Unicode, provider gating, JS escaping |
+| `test_examples.py` | ISO 639-1→3 mapping, spaced/Chinese phrase gating, limits, unsupported languages, HTTP/malformed responses, Unicode and safe markup handling |
 | `test_tts.py` | Word-boundary chunking, hard-splitting overlong words, multi-segment joining, MP3/ID3 sniffing, HTML-error-page rejection, empty body, rate limit, HTTP errors, timeouts, connection failure, Unicode |
 | `test_fallback.py` | Fallback on network/quota/missing-key failures, no fallback when the primary succeeds, both-failed message naming both causes, fallback results cached under the fallback provider, no cache leakage between providers, fallback logged not silent, config validation |
 
@@ -365,7 +369,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Click the **→** → languages swap and the text re-translates
 - [ ] Swap while source is `auto` → the detected language becomes the target, never `auto`
 - [ ] Escape with a dropdown open → closes the dropdown only; a second Escape closes the popup
-- [ ] Reopen the popup after changing languages → the new pair persisted
+- [ ] Reopen the popup after changing languages → the current deck's pair persisted
+- [ ] Change deck A to `de → en`, deck B to `es → en`, then switch between them → each pair returns
+- [ ] With DeepL/LibreTranslate configured → source and target lists hide unsupported choices
+- [ ] Break the language-list probe → the full configured list remains available
 - [ ] Tab to the language controls and press Enter → dropdown opens (keyboard accessible)
 - [ ] Select text, press Escape, then **Ctrl+Shift+T** → popup reopens for that selection
 - [ ] Press Ctrl+Shift+T with nothing selected → nothing happens
@@ -395,9 +402,7 @@ Set up a deck with German cards, then work through these.
 - [ ] **Edit** the card, close the editor, press `x` → still speaks, with the edited text
 - [ ] Open **More**, pick an action, press `x` → still speaks
 - [ ] Same three, but let the card auto-pronounce instead of pressing a key → still speaks
-- [ ] If a key ever goes dead: set `debug_logging: true`, press it, and check the console —
-      a `shortcut:` line means the key arrived and the fault is downstream; no line
-      means the webview never saw it (focus), which is a different bug
+- [ ] Repeat Sync/Edit/More with `tts_provider: system` → click the card before `x`; no off-focus fallback sends text online
 
 ### No interference with Anki
 
@@ -434,7 +439,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Set `fallback_provider` to the same value as `translation_provider` → config error explaining they must differ
 - [ ] **No network** (turn off Wi-Fi) → *Could not reach the translation service*
 - [ ] Set `request_timeout_seconds: 1` against a slow endpoint → timeout message names the value
-- [ ] Set `source_language: "auto"` → detected language is displayed
+- [ ] Set `source_language: "auto"` → detected language is displayed and examples still appear
+- [ ] Translate `房子` from `zh` → translation and a short Tatoeba lookup work
+- [ ] Select a Chinese sentence longer than 8 characters → translation works, example lookup is skipped
+- [ ] With DeepL, target `zh` / `zh-TW` → simplified / traditional translation succeeds
 - [ ] Select text containing **`<b>`, `&`, `<script>`** → shown literally as text, nothing executes, no layout break
 - [ ] Set an invalid config value (e.g. `"request_timeout_seconds": "ten"`) → pressing Translate explains the problem
 - [ ] Select an enormous block of text → refused with a length message
@@ -483,8 +491,8 @@ Set up a deck with German cards, then work through these.
    in `config.md` to install a classic voice if you want offline speech.
 2. **Online TTS is unofficial.** The same caveats as the Google translation
    provider apply: undocumented endpoint, no service agreement, may break or
-   rate-limit. Audio is cached in `user_files/tts/`, so repeats are free, but
-   that folder has no size cap — delete it to reclaim space.
+   rate-limit. Audio is cached in `user_files/tts/`; `tts_cache_max_mb` limits
+   its size.
 3. **Voice enumeration is slow to start.** System voices appear 3–4 seconds
    after the reviewer opens. The list is warmed at startup.
 4. **System speech requires a real user gesture** (a Chromium rule). The popup's
@@ -515,12 +523,13 @@ Set up a deck with German cards, then work through these.
     `['en_US']` (David, Zira, Mark). Neither exposes a German voice, so routing
     speech through Qt would not reach the Narrator natural voices either. Only
     installing a classic voice, or the online provider, actually helps.
-11. **Examples are word-level only.** Tatoeba is searched for selections of up
-    to 3 words / 40 characters; a whole sentence returns nothing useful, so the
-    lookup is skipped. Examples are also unavailable when `source_language` is
-    `auto`, because Tatoeba needs a concrete language code.
-12. **Examples are not cached.** Unlike translations and audio, each lookup
-    queries Tatoeba again (~0.2s). Worth adding if it becomes noticeable.
+11. **Examples are phrase-level only.** Tatoeba is searched for selections of
+    up to 3 words / 40 characters, or 8 characters for unspaced Chinese. Whole
+    sentences are skipped because they return nothing useful.
+12. **Off-focus system speech cannot be synthesized through Qt.** The Qt
+    fallback after Sync/Edit/More can use online-capable modes, but strict
+    `tts_provider: system` needs the keypress inside Chromium. Click the card to
+    restore focus; the fallback never weakens the no-network promise.
 13. **Auto-lookup changes the privacy posture.** With the defaults, selecting
     text transmits it immediately — no button press gates it any more. This was
     an explicit request; `auto_translate`, `auto_pronounce` and `show_examples`
@@ -544,7 +553,7 @@ Deliberately excluded:
 | Excluded | Why |
 | --- | --- |
 | `meta.json` | Holds the user's saved config **including the API key** |
-| `user_files/` | The local translation cache |
+| `user_files/` | Local translation, example, and speech caches |
 | `__pycache__/`, `*.pyc` | Build artefacts |
 
 To do it by hand instead: select the *contents* of the `anki_translate_popup`

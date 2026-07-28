@@ -29,7 +29,7 @@ from .cache import TranslationCache, prune_audio_cache
 from .config import DEFAULTS, AddonConfig, parse_config
 from .examples import TatoebaExamples
 from .translation import TranslationError, TranslationRequest, build_translator
-from .translation.base import ConfigurationError, ProviderError
+from .translation.base import ConfigurationError, LanguageSupport, ProviderError
 from .tts import MAX_SPEECH_CHARS, GoogleTextToSpeech, SpeechError
 
 ADDON_NAME = "Translate & Pronounce Popup"
@@ -63,6 +63,11 @@ _cache_lifetime_days: Optional[int] = None
 # `without_collection()` lets translations run in parallel, so the cache
 # singleton is reachable from several worker threads at once.
 _cache_lock = threading.Lock()
+_language_support_key: Optional[Tuple[str, str, str, float]] = None
+_language_support: Optional[LanguageSupport] = None
+_language_support_webviews: List[Tuple[Any, Optional[int]]] = []
+_qt_speech_shortcuts: List[Any] = []
+_qt_speech_shortcut_keys: List[str] = []
 
 
 # -- configuration ----------------------------------------------------------
@@ -76,15 +81,42 @@ def _raw_config() -> Dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else dict(DEFAULTS)
 
 
-def _load_config() -> Tuple[AddonConfig, Optional[str]]:
-    """Return ``(config, error)``.
+def _deck_id_from_card(card: Any) -> Optional[int]:
+    deck_id = getattr(card, "odid", 0) or getattr(card, "did", 0)
+    return deck_id if isinstance(deck_id, int) and deck_id > 0 else None
 
-    A broken configuration must not disable the whole add-on: pronunciation and
-    the popup still work on defaults, and the error is reported when the user
-    actually presses Translate.
-    """
+
+def _current_deck_id() -> Optional[int]:
+    """Current card's real deck, or Anki's selected deck outside a review."""
+    current_mw = globals().get("mw")
+    if current_mw is None:
+        return None
+
+    card = getattr(getattr(current_mw, "reviewer", None), "card", None)
+    if deck_id := _deck_id_from_card(card):
+        return deck_id
+
     try:
-        return parse_config(_raw_config()), None
+        deck = current_mw.col.decks.current()
+        deck_id = deck.get("id") if isinstance(deck, dict) else None
+        return int(deck_id) if isinstance(deck_id, int) and deck_id > 0 else None
+    except Exception:  # noqa: BLE001 - collection may not exist during startup
+        return None
+
+
+def _context_deck_id(context: Any) -> Optional[int]:
+    card = getattr(context, "card", None)
+    try:
+        card = card() if callable(card) else card
+    except Exception:  # noqa: BLE001 - previewer may be closing
+        card = None
+    return _deck_id_from_card(card) or _current_deck_id()
+
+
+def _load_config(deck_id: Optional[int] = None) -> Tuple[AddonConfig, Optional[str]]:
+    """Return one deck's effective ``(config, error)`` pair."""
+    try:
+        return parse_config(_raw_config()).for_deck(deck_id or _current_deck_id()), None
     except ConfigurationError as exc:
         logger.warning("Invalid configuration: %s", exc)
         return parse_config(DEFAULTS), str(exc)
@@ -154,9 +186,9 @@ def _translate_with(config: AddonConfig, provider: str, text: str) -> Dict[str, 
     }
 
 
-def _translate_blocking(text: str) -> Dict[str, Any]:
+def _translate_blocking(text: str, deck_id: Optional[int] = None) -> Dict[str, Any]:
     """Perform a translation. Runs on a worker thread - no Qt calls in here."""
-    config, config_error = _load_config()
+    config, config_error = _load_config(deck_id)
     if config_error:
         raise ConfigurationError(config_error)
 
@@ -164,7 +196,7 @@ def _translate_blocking(text: str) -> Dict[str, Any]:
     try:
         payload = _translate_with(config, primary, text)
         payload["usedFallback"] = False
-        payload["examples"] = _fetch_examples(config, text)
+        payload["examples"] = _fetch_examples(config, text, payload["sourceLang"])
         return payload
     except TranslationError as primary_error:
         if not config.fallback_provider:
@@ -187,18 +219,30 @@ def _translate_blocking(text: str) -> Dict[str, Any]:
             ) from fallback_error
 
         payload["usedFallback"] = True
-        payload["examples"] = _fetch_examples(config, text)
+        payload["examples"] = _fetch_examples(config, text, payload["sourceLang"])
         return payload
 
 
-def _fetch_examples(config: AddonConfig, text: str) -> List[Dict[str, str]]:
+def _fetch_examples(
+    config: AddonConfig, text: str, source_lang: str
+) -> List[Dict[str, str]]:
     """Look up usage examples. Never allowed to fail a translation."""
     if not config.show_examples:
         return []
+
+    cache = _get_cache(config)
     try:
-        found = TatoebaExamples(config.request_timeout_seconds).fetch(
-            text, config.source_language, config.target_language
-        )
+        found = cache.get_examples(
+            source_lang, config.target_language, text
+        ) if cache is not None else None
+        if found is None:
+            found = TatoebaExamples(config.request_timeout_seconds).fetch(
+                text, source_lang, config.target_language
+            )
+            # ponytail: cache only non-empty results because Tatoeba reports HTTP
+            # failures as []; cache misses too once fetch distinguishes the two.
+            if cache is not None and found:
+                cache.set_examples(source_lang, config.target_language, text, found)
     except Exception:  # noqa: BLE001 - examples are a bonus, not the answer
         logger.warning("Example lookup failed", exc_info=True)
         return []
@@ -469,6 +513,10 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     player has no such restriction.
     """
     config, error = _load_config()
+    if not is_answer:
+        web = getattr(getattr(mw, "reviewer", None), "web", None)
+        if web is not None:
+            _push_webview_config(web, config)
     # Before the auto-pronounce gates: the shortcuts stay usable even when
     # nothing is spoken automatically, which is most of their point.
     _push_card_text(card, config, is_answer=is_answer)
@@ -534,6 +582,111 @@ def on_reviewer_did_show_question(card: Any) -> None:
 
 def on_reviewer_did_show_answer(card: Any) -> None:
     _on_card_side_shown(card, is_answer=True)
+
+
+def _qt_pronounce_card_side(*, is_answer: bool) -> None:
+    """Off-focus shortcut fallback; browser-focused keys stay in JavaScript."""
+    reviewer = getattr(mw, "reviewer", None)
+    card = getattr(reviewer, "card", None)
+    if card is None or (is_answer and getattr(reviewer, "state", None) != "answer"):
+        return
+
+    config, error = _load_config()
+    # A Qt callback cannot grant Chromium the user activation a system voice
+    # requires. Never violate system-only mode by silently going online.
+    if error or config.tts_provider == "system":
+        return
+    try:
+        text = card_side_text(
+            card.answer() if is_answer else card.question(),
+            is_answer=is_answer,
+            first_line_only=config.speak_first_line_only,
+        )
+    except Exception:  # noqa: BLE001 - shortcut must never break reviewing
+        logger.exception("Could not read the card text for the Qt speech shortcut")
+        return
+    if not text or len(text) > MAX_SPEECH_CHARS:
+        return
+    web = getattr(reviewer, "web", None)
+    if web is not None:
+        _qt_stop_speech()
+        _start_speech(web, 0, text, config.speech_language_for(is_answer=is_answer))
+
+
+def _qt_stop_speech() -> None:
+    from aqt.sound import av_player
+
+    av_player.stop_and_clear_queue()
+    web = getattr(getattr(mw, "reviewer", None), "web", None)
+    if web is not None:
+        web.eval("globalThis.speechSynthesis && globalThis.speechSynthesis.cancel();")
+
+
+def on_state_shortcuts_will_change(
+    state: Any, shortcuts: List[Tuple[str, Any]]
+) -> None:
+    """Add Qt fallbacks that work after dialogs leave the webview unfocused."""
+    global _qt_speech_shortcut_keys
+    _qt_speech_shortcut_keys = []
+    if state != "review":
+        return
+    config, _ = _load_config()
+    candidates = (
+        (config.pronounce_prompt_shortcut, lambda: _qt_pronounce_card_side(is_answer=False)),
+        (config.pronounce_answer_shortcut, lambda: _qt_pronounce_card_side(is_answer=True)),
+        (config.stop_speech_shortcut, _qt_stop_speech),
+    )
+    for key, callback in candidates:
+        if key:
+            shortcuts.append((key, callback))
+            _qt_speech_shortcut_keys.append(key)
+
+
+def _capture_qt_speech_shortcuts() -> None:
+    global _qt_speech_shortcuts
+    shortcuts = list(getattr(mw, "stateShortcuts", ()))
+    try:
+        from aqt.qt import QKeySequence
+
+        wanted = {QKeySequence(key).toString() for key in _qt_speech_shortcut_keys}
+        _qt_speech_shortcuts = [
+            shortcut for shortcut in shortcuts if shortcut.key().toString() in wanted
+        ]
+    except ImportError:  # pragma: no cover - non-Anki unit-test fallback
+        _qt_speech_shortcuts = shortcuts[-len(_qt_speech_shortcut_keys):]
+    _sync_qt_speech_shortcuts()
+
+
+def _rebuild_qt_speech_shortcuts() -> None:
+    reviewer = getattr(mw, "reviewer", None)
+    if getattr(mw, "state", None) != "review" or reviewer is None:
+        return
+    mw.clearStateShortcuts()
+    mw.setStateShortcuts(list(reviewer._shortcutKeys()))
+    _capture_qt_speech_shortcuts()
+
+
+def _sync_qt_speech_shortcuts(focused: Any = None, _old: Any = None) -> None:
+    """Disable Qt fallbacks while JS has focus, preventing duplicate speech."""
+    web = getattr(getattr(mw, "reviewer", None), "web", None)
+    web_focused = False
+    if web is not None:
+        try:
+            web_focused = bool(web.hasFocus())
+            if focused is not None:
+                web_focused = web_focused or focused is web or web.isAncestorOf(focused)
+        except Exception:  # noqa: BLE001 - a closing webview may already be deleted
+            pass
+    for shortcut in _qt_speech_shortcuts:
+        shortcut.setEnabled(not web_focused)
+
+
+def on_state_did_change(new_state: Any, _old_state: Any) -> None:
+    global _qt_speech_shortcuts
+    if new_state == "review":
+        _capture_qt_speech_shortcuts()
+    else:
+        _qt_speech_shortcuts = []
 
 
 def _set_option(raw_payload: str) -> None:
@@ -650,6 +803,98 @@ def _send_to_webview(web: Any, payload: Dict[str, Any]) -> None:
     )
 
 
+def _webview_payload(config: AddonConfig) -> Dict[str, Any]:
+    return config.for_webview(_language_support)
+
+
+def _push_webview_config(web: Any, config: AddonConfig) -> None:
+    web.eval(
+        "globalThis.ankiTranslatePopup && "
+        f"globalThis.ankiTranslatePopup.onConfigChanged({_js_json(_webview_payload(config))});"
+    )
+
+
+def _language_support_cache_key(config: AddonConfig) -> Tuple[str, str, str, float]:
+    endpoint = (
+        config.libretranslate_endpoint
+        if config.translation_provider == "libretranslate"
+        else ""
+    )
+    api_key = (
+        config.api_key
+        if config.translation_provider in ("deepl", "libretranslate")
+        else ""
+    )
+    return config.translation_provider, endpoint, api_key, config.request_timeout_seconds
+
+
+def _remember_language_support_webview(web: Any, deck_id: Optional[int]) -> None:
+    for index, (known, _deck_id) in enumerate(_language_support_webviews):
+        if known is web:
+            _language_support_webviews[index] = (web, deck_id)
+            return
+    _language_support_webviews.append((web, deck_id))
+
+
+def _broadcast_webview_configs() -> None:
+    live = []
+    reviewer = getattr(globals().get("mw"), "reviewer", None)
+    reviewer_web = getattr(reviewer, "web", None)
+    for web, deck_id in _language_support_webviews:
+        try:
+            if web is reviewer_web:
+                deck_id = _current_deck_id()
+            config, _ = _load_config(deck_id)
+            _push_webview_config(web, config)
+            live.append((web, deck_id))
+        except Exception:  # noqa: BLE001 - discard a closed previewer's webview
+            pass
+    _language_support_webviews[:] = live
+
+
+def _start_language_support_probe(
+    config: AddonConfig, web: Any, deck_id: Optional[int] = None
+) -> None:
+    """Probe provider capabilities off the UI thread, once per provider setup."""
+    global _language_support_key, _language_support
+    _remember_language_support_webview(web, deck_id)
+    key = _language_support_cache_key(config)
+    if key == _language_support_key:
+        return
+    _language_support_key = key
+    _language_support = None
+    translator = build_translator(config)
+
+    def op(_col: Any) -> Optional[LanguageSupport]:
+        return translator.supported_languages()
+
+    def success(support: Optional[LanguageSupport]) -> None:
+        global _language_support
+        if _language_support_key != key:
+            return
+        _language_support = support
+        _broadcast_webview_configs()
+
+    def failure(exc: Exception) -> None:
+        global _language_support_key, _language_support
+        if _language_support_key == key:
+            _language_support_key = None  # retry on the next config/view refresh
+            _language_support = None
+            logger.warning(
+                "Could not load %s supported languages; using the configured list: %s",
+                config.translation_provider,
+                exc,
+            )
+            _broadcast_webview_configs()
+
+    (
+        QueryOp(parent=mw, op=op, success=success)
+        .without_collection()
+        .failure(failure)
+        .run_in_background()
+    )
+
+
 def _webview_for(context: Any) -> Optional[Any]:
     """Return the webview to inject into, or None for an unsupported screen.
 
@@ -679,18 +924,21 @@ def _is_reviewer(context: Any) -> bool:
 
 
 def on_webview_will_set_content(web_content: "WebContent", context: Any) -> None:
-    if not _is_reviewer(context):
+    web = _webview_for(context)
+    if web is None:
         return
 
     package = mw.addonManager.addonFromModule(__name__)
-    config, config_error = _load_config()
+    deck_id = _context_deck_id(context)
+    config, config_error = _load_config(deck_id)
     if config_error:
         logger.warning("Serving reviewer with default settings: %s", config_error)
+    _start_language_support_probe(config, web, deck_id)
 
     # Runs before the <body> scripts, so reviewer.js sees the config immediately.
     web_content.head += (
         "<script>globalThis.ankiTranslatePopupConfig = "
-        f"{_js_json(config.for_webview())};</script>"
+        f"{_js_json(_webview_payload(config))};</script>"
     )
     web_content.css.append(f"/_addons/{package}/web/reviewer.css")
     web_content.js.append(f"/_addons/{package}/web/reviewer.js")
@@ -718,7 +966,7 @@ def on_js_message(
         return True, None
 
     if command == "set_languages":
-        _set_languages(raw_payload)
+        _set_languages(raw_payload, _context_deck_id(context))
         return True, None
 
     if command == "set_option":
@@ -739,7 +987,7 @@ def on_js_message(
         return True, None
 
     if command == "translate":
-        _start_translation(web, request_id, text)
+        _start_translation(web, request_id, text, _context_deck_id(context))
     elif command == "speak":
         _start_speech(web, request_id, text, lang)
     else:
@@ -747,7 +995,7 @@ def on_js_message(
     return True, None
 
 
-def _set_languages(raw_payload: str) -> None:
+def _set_languages(raw_payload: str, deck_id: Optional[int] = None) -> None:
     """Persist a language pair chosen from the popup header.
 
     Validated before it is written: the popup is the only caller today, but a
@@ -763,8 +1011,18 @@ def _set_languages(raw_payload: str) -> None:
         return
 
     raw = _raw_config()
-    raw["source_language"] = source
-    raw["target_language"] = target
+    deck_id = deck_id or _current_deck_id()
+    if deck_id is None:
+        raw["source_language"] = source
+        raw["target_language"] = target
+    else:
+        saved_pairs = raw.get("deck_language_pairs", {})
+        if not isinstance(saved_pairs, dict):
+            logger.warning("Refusing language change: 'deck_language_pairs' is invalid")
+            return
+        saved_pairs = dict(saved_pairs)
+        saved_pairs[str(deck_id)] = [source, target]
+        raw["deck_language_pairs"] = saved_pairs
     try:
         parse_config(raw)
     except ConfigurationError as exc:
@@ -774,7 +1032,12 @@ def _set_languages(raw_payload: str) -> None:
     # writeConfig fires setConfigUpdatedAction, which re-pushes the config to
     # every open webview - that is how the other screens stay in step.
     mw.addonManager.writeConfig(__name__, raw)
-    logger.debug("Language pair set to %s -> %s", source, target)
+    logger.debug(
+        "Language pair set to %s -> %s%s",
+        source,
+        target,
+        f" for deck {deck_id}" if deck_id else " globally",
+    )
 
 
 def _copy_to_clipboard(web: Any, request_id: int, text: str) -> None:
@@ -803,7 +1066,9 @@ def _copy_to_clipboard(web: Any, request_id: int, text: str) -> None:
     _send_to_webview(web, {"id": request_id, "kind": "copy", "ok": True})
 
 
-def _start_translation(web: Any, request_id: int, text: str) -> None:
+def _start_translation(
+    web: Any, request_id: int, text: str, deck_id: Optional[int] = None
+) -> None:
     text = text.strip()
     if not text:
         return
@@ -822,7 +1087,7 @@ def _start_translation(web: Any, request_id: int, text: str) -> None:
         return
 
     def op(_col: Any) -> Dict[str, Any]:
-        return _translate_blocking(text)
+        return _translate_blocking(text, deck_id)
 
     def success(result: Dict[str, Any]) -> None:
         payload = {"id": request_id, "ok": True}
@@ -863,14 +1128,21 @@ def on_config_updated(_new_config: Any) -> None:
     if error:
         logger.warning("Configuration saved with problems: %s", error)
 
+    _rebuild_qt_speech_shortcuts()
     reviewer = getattr(mw, "reviewer", None)
     web = getattr(reviewer, "web", None)
     if web is None or mw.state != "review":
         return
-    web.eval(
-        "globalThis.ankiTranslatePopup && "
-        f"globalThis.ankiTranslatePopup.onConfigChanged({_js_json(config.for_webview())});"
-    )
+    deck_id = _current_deck_id()
+    _start_language_support_probe(config, web, deck_id)
+    _broadcast_webview_configs()
+    card = getattr(reviewer, "card", None)
+    if card is not None:
+        _push_card_text(
+            card,
+            config,
+            is_answer=getattr(reviewer, "state", "question") == "answer",
+        )
 
 
 def setup() -> None:
@@ -887,6 +1159,9 @@ def setup() -> None:
     gui_hooks.webview_did_receive_js_message.append(on_js_message)
     gui_hooks.reviewer_did_show_question.append(on_reviewer_did_show_question)
     gui_hooks.reviewer_did_show_answer.append(on_reviewer_did_show_answer)
+    gui_hooks.state_shortcuts_will_change.append(on_state_shortcuts_will_change)
+    gui_hooks.state_did_change.append(on_state_did_change)
+    gui_hooks.focus_did_change.append(_sync_qt_speech_shortcuts)
     logger.info("%s loaded", ADDON_NAME)
 
 

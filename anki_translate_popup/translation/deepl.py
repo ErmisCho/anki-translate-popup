@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, FrozenSet
 
 from .base import (
     ConfigurationError,
+    LanguageSupport,
     ProviderError,
     TranslationRequest,
     TranslationResult,
@@ -13,8 +14,20 @@ from .base import (
     normalise_two_letter,
 )
 
-FREE_ENDPOINT = "https://api-free.deepl.com/v2/translate"
-PRO_ENDPOINT = "https://api.deepl.com/v2/translate"
+FREE_API = "https://api-free.deepl.com/v2"
+PRO_API = "https://api.deepl.com/v2"
+FREE_ENDPOINT = f"{FREE_API}/translate"
+PRO_ENDPOINT = f"{PRO_API}/translate"
+
+
+def deepl_target_language(lang: str) -> str:
+    """Map user-facing Chinese codes onto DeepL's required target variants."""
+    code = lang.strip().replace("_", "-").upper()
+    if code in ("ZH", "ZH-CN", "ZH-SG", "ZH-HANS"):
+        return "ZH-HANS"
+    if code in ("ZH-TW", "ZH-HK", "ZH-MO", "ZH-HANT"):
+        return "ZH-HANT"
+    return code
 
 
 class DeepLTranslator(Translator):
@@ -39,16 +52,48 @@ class DeepLTranslator(Translator):
             )
 
     @property
-    def _endpoint(self) -> str:
+    def _api(self) -> str:
         # DeepL free keys carry a ':fx' suffix and use a separate host.
-        return FREE_ENDPOINT if self._api_key.endswith(":fx") else PRO_ENDPOINT
+        return FREE_API if self._api_key.endswith(":fx") else PRO_API
+
+    @property
+    def _endpoint(self) -> str:
+        return f"{self._api}/translate"
+
+    def supported_languages(self) -> LanguageSupport:
+        self.validate()
+        headers = {"Authorization": f"DeepL-Auth-Key {self._api_key}"}
+        source = self._language_codes(
+            self._request_json(
+                "GET", f"{self._api}/languages", headers=headers, params={"type": "source"}
+            )
+        )
+        target = self._language_codes(
+            self._request_json(
+                "GET", f"{self._api}/languages", headers=headers, params={"type": "target"}
+            )
+        )
+        return source, target
+
+    @staticmethod
+    def _language_codes(payload: Any) -> FrozenSet[str]:
+        if not isinstance(payload, list):
+            raise ProviderError("DeepL returned an unexpected language list.")
+        codes = frozenset(
+            entry["language"].lower()
+            for entry in payload
+            if isinstance(entry, dict) and isinstance(entry.get("language"), str)
+        )
+        if not codes:
+            raise ProviderError("DeepL returned no supported languages.")
+        return codes
 
     def translate(self, request: TranslationRequest) -> TranslationResult:
         self.validate()
 
         body: Dict[str, Any] = {
             "text": [request.text],
-            "target_lang": request.target_lang.strip().upper(),
+            "target_lang": deepl_target_language(request.target_lang),
         }
         if request.source_lang != "auto":
             # DeepL only accepts a plain two-letter source language.

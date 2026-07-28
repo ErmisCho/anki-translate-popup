@@ -100,6 +100,38 @@ class DeepLTest(unittest.TestCase):
             self.make().translate(req(source="de-AT"))
         self.assertEqual(request.call_args[1]["json"]["source_lang"], "DE")
 
+    def test_chinese_target_uses_a_deepl_variant(self):
+        payload = {"translations": [{"text": "房子"}]}
+        cases = {
+            "zh": "ZH-HANS",
+            "zh-CN": "ZH-HANS",
+            "zh-HANS": "ZH-HANS",
+            "zh-TW": "ZH-HANT",
+            "zh-HANT": "ZH-HANT",
+        }
+        for target, expected in cases.items():
+            with self.subTest(target=target):
+                with patch_request(return_value=FakeResponse(payload)) as request:
+                    self.make().translate(req(target=target))
+                self.assertEqual(request.call_args[1]["json"]["target_lang"], expected)
+
+    def test_supported_languages_probes_source_and_target(self):
+        responses = [
+            FakeResponse([{"language": "DE"}, {"language": "ZH"}]),
+            FakeResponse([{"language": "EN-US"}, {"language": "ZH-HANS"}]),
+        ]
+        with patch_request(side_effect=responses) as request:
+            source, target = self.make().supported_languages()
+        self.assertEqual(source, frozenset({"de", "zh"}))
+        self.assertEqual(target, frozenset({"en-us", "zh-hans"}))
+        self.assertEqual(
+            [call.kwargs["params"] for call in request.call_args_list],
+            [{"type": "source"}, {"type": "target"}],
+        )
+        self.assertTrue(
+            all("/v2/languages" in call.args[1] for call in request.call_args_list)
+        )
+
     def test_missing_api_key_is_a_configuration_error(self):
         with patch_request() as request:
             with self.assertRaises(ConfigurationError) as ctx:
@@ -286,6 +318,18 @@ class LibreTranslateTest(unittest.TestCase):
         self.assertEqual(body["source"], "de")
         self.assertEqual(body["target"], "en")
 
+    def test_supported_languages_uses_declared_targets(self):
+        payload = [
+            {"code": "de", "targets": ["en", "fr"]},
+            {"code": "en", "targets": ["de"]},
+        ]
+        with patch_request(return_value=FakeResponse(payload)) as request:
+            source, target = self.make(api_key="secret").supported_languages()
+        self.assertEqual(source, frozenset({"de", "en"}))
+        self.assertEqual(target, frozenset({"de", "en", "fr"}))
+        self.assertEqual(request.call_args[0][1], "http://localhost:5000/languages")
+        self.assertEqual(request.call_args[1]["params"], {"api_key": "secret"})
+
     def test_api_key_included_only_when_set(self):
         with patch_request(return_value=FakeResponse({"translatedText": "x"})) as request:
             self.make().translate(req())
@@ -338,6 +382,9 @@ class GoogleUnofficialTest(unittest.TestCase):
                 self.make(enabled=False).translate(req())
         request.assert_not_called()
         self.assertIn("enable_google_unofficial", str(ctx.exception))
+
+    def test_capabilities_fall_back_to_the_configured_picker(self):
+        self.assertIsNone(self.make().supported_languages())
 
     def test_happy_path(self):
         payload = [[["the house", "das Haus", None, None, 10]], None, "de"]

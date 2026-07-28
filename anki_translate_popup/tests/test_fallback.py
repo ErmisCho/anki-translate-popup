@@ -75,9 +75,11 @@ class FallbackTestBase(unittest.TestCase):
 
         # _translate_blocking also looks up examples; stub it so these tests
         # stay offline. ExamplesInPayloadTest covers the real wiring.
-        no_examples = mock.patch.object(addon, "_fetch_examples", return_value=[])
-        no_examples.start()
-        self.addCleanup(no_examples.stop)
+        self._no_examples = mock.patch.object(
+            addon, "_fetch_examples", return_value=[]
+        )
+        self._no_examples.start()
+        self.addCleanup(self._no_examples.stop)
 
     def _reset_cache(self) -> None:
         addon._cache = None
@@ -235,11 +237,7 @@ class ExamplesInPayloadTest(FallbackTestBase):
 
     def setUp(self) -> None:
         super().setUp()
-        mock.patch.stopall()  # drop the base class's _fetch_examples stub
-        self.calls = []
-        quiet = mock.patch.object(addon.logger, "warning")
-        quiet.start()
-        self.addCleanup(quiet.stop)
+        self._no_examples.stop()  # exercise the real wiring in this class
 
     def test_examples_reach_the_payload(self):
         from anki_translate_popup.examples import Example
@@ -256,6 +254,39 @@ class ExamplesInPayloadTest(FallbackTestBase):
             payload["examples"],
             [{"text": "Das Haus ist alt.", "translation": "The house is old."}],
         )
+
+    def test_repeated_example_lookup_uses_cache(self):
+        from anki_translate_popup.examples import Example
+
+        raw = self.configure(
+            translation_provider="deepl", api_key="k:fx", source_language="auto"
+        )
+        examples = [Example(text="Das Haus ist alt.", translation="The house is old.")]
+        with mock.patch.object(
+            addon.TatoebaExamples, "fetch", return_value=examples
+        ) as fetch:
+            first = self.run_translation(raw, {"deepl": "the house"})
+            second = self.run_translation(raw, {"deepl": "the house"})
+
+        fetch.assert_called_once_with("das Haus", "de", "en")
+        self.assertEqual(first["examples"], second["examples"])
+
+    def test_example_failure_is_not_cached(self):
+        from anki_translate_popup.examples import Example
+
+        raw = self.configure(translation_provider="deepl", api_key="k:fx")
+        examples = [Example(text="Das Haus ist alt.", translation="The house is old.")]
+        with mock.patch.object(
+            addon.TatoebaExamples,
+            "fetch",
+            side_effect=[RuntimeError("corpus down"), examples],
+        ) as fetch:
+            first = self.run_translation(raw, {"deepl": "the house"})
+            second = self.run_translation(raw, {"deepl": "the house"})
+
+        self.assertEqual(first["examples"], [])
+        self.assertEqual(len(second["examples"]), 1)
+        self.assertEqual(fetch.call_count, 2)
 
     def test_examples_disabled_makes_no_lookup(self):
         raw = self.configure(

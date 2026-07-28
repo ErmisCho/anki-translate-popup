@@ -38,7 +38,9 @@
         stopSpeechShortcut: "z",
         frontSpeechLanguage: "auto",
         backSpeechLanguage: "auto",
-        pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
+        pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"],
+        sourcePickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"],
+        targetPickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"],
     };
 
     var config = Object.assign({}, DEFAULTS, globalThis.ankiTranslatePopupConfig || {});
@@ -324,10 +326,21 @@
      * only - "auto" as a target is not a valid configuration.
      */
     function languageOptions(which) {
-        var configured = config.pickerLanguages;
+        var configured =
+            which === "source"
+                ? config.sourcePickerLanguages
+                : which === "target"
+                  ? config.targetPickerLanguages
+                  : config.pickerLanguages;
+        var current =
+            which === "source"
+                ? config.sourceLanguage
+                : which === "target"
+                  ? config.targetLanguage
+                  : "";
         var wanted = (which === "source" ? ["auto"] : []).concat(
             Array.isArray(configured) ? configured : [],
-            [which === "source" ? config.sourceLanguage : config.targetLanguage]
+            current ? [current] : []
         );
         var seen = Object.create(null);
         var out = [];
@@ -355,7 +368,9 @@
 
     function openPicker(which, trigger) {
         closePicker();
-        var current = which === "source" ? config.sourceLanguage : config.targetLanguage;
+        var current = String(
+            which === "source" ? config.sourceLanguage : config.targetLanguage
+        ).toLowerCase();
 
         el.menu.textContent = "";
         el.menu.setAttribute("role", "listbox"); // the settings menu sets "menu"
@@ -449,11 +464,15 @@
      * picking a language or pressing Escape returns to the settings list.
      */
     function openVoicePicker(voice) {
-        var current = config[voice.field] || "auto";
+        var current = String(config[voice.field] || "auto").toLowerCase();
         el.menu.textContent = "";
         el.menu.setAttribute("role", "listbox");
 
-        ["auto"].concat(languageOptions("target")).forEach(function (code) {
+        var options = ["auto"].concat(languageOptions("voice"));
+        if (current !== "auto" && options.indexOf(current) === -1) {
+            options.push(current);
+        }
+        options.forEach(function (code) {
             var item = document.createElement("div");
             item.className = "atp-menu-item";
             item.setAttribute("role", "option");

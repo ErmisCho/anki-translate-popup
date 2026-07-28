@@ -57,8 +57,9 @@ class ParseDefaultsTest(unittest.TestCase):
         self.assertEqual(DEFAULTS["lookup_shortcut"], "Ctrl+Shift+T")
         self.assertEqual(
             DEFAULTS["picker_languages"],
-            ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
+            ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"],
         )
+        self.assertEqual(DEFAULTS["deck_language_pairs"], {})
 
     def test_missing_keys_fall_back_to_defaults(self):
         config = parse_config({"api_key": "abc"})
@@ -108,6 +109,37 @@ class LanguageValidationTest(unittest.TestCase):
     def test_empty_language_rejected(self):
         with self.assertRaises(ConfigurationError):
             parse_config(config_with(target_language="   "))
+
+
+class DeckLanguagePairTest(unittest.TestCase):
+    def test_deck_pair_overrides_the_global_pair(self):
+        config = parse_config(
+            config_with(deck_language_pairs={"42": ["es", "en"]})
+        ).for_deck(42)
+        self.assertEqual((config.source_language, config.target_language), ("es", "en"))
+
+    def test_missing_deck_falls_back_to_the_global_pair(self):
+        config = parse_config(
+            config_with(
+                source_language="de",
+                target_language="en",
+                deck_language_pairs={"42": ["es", "fr"]},
+            )
+        ).for_deck(7)
+        self.assertEqual((config.source_language, config.target_language), ("de", "en"))
+
+    def test_deck_pair_codes_are_normalised(self):
+        config = parse_config(
+            config_with(deck_language_pairs={"42": ["AUTO", "zh_tw"]})
+        )
+        self.assertEqual(config.deck_language_pairs["42"], ("auto", "zh-TW"))
+
+    def test_invalid_deck_pair_is_rejected(self):
+        for value in ([], {"deck": ["de", "en"]}, {"42": ["de"]}, {"42": ["de", "auto"]}):
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigurationError) as ctx:
+                    parse_config(config_with(deck_language_pairs=value))
+                self.assertIn("deck_language_pairs", str(ctx.exception))
 
 
 class TypeAndRangeTest(unittest.TestCase):
@@ -346,6 +378,39 @@ class WebviewConfigTest(unittest.TestCase):
         # encoders and to code that compares it against config.json values.
         self.assertIsInstance(payload["pickerLanguages"], list)
         json.loads(json.dumps(payload))  # must not raise
+
+    def test_provider_support_filters_each_translation_picker(self):
+        config = parse_config(
+            config_with(source_language="el", target_language="es")
+        )
+        support = (frozenset({"de", "zh"}), frozenset({"en", "zh-hans"}))
+        payload = config.for_webview(support)
+        self.assertEqual(payload["sourcePickerLanguages"], ["de", "zh", "el"])
+        self.assertEqual(payload["targetPickerLanguages"], ["en", "zh", "es"])
+        # Voice choices are not translation-provider capabilities.
+        self.assertEqual(payload["pickerLanguages"], DEFAULTS["picker_languages"])
+
+    def test_one_chinese_variant_does_not_enable_the_other(self):
+        config = parse_config(
+            config_with(picker_languages=["zh", "zh-TW"], target_language="en")
+        )
+        payload = config.for_webview(
+            (frozenset({"zh"}), frozenset({"zh-hans", "en"}))
+        )
+        self.assertEqual(payload["targetPickerLanguages"], ["zh", "en"])
+
+        for provider_code in ("zh-hant", "zh-tw"):
+            traditional = config.for_webview(
+                (frozenset({"zh"}), frozenset({provider_code, "en"}))
+            )
+            self.assertEqual(
+                traditional["targetPickerLanguages"], ["zh", "zh-TW", "en"]
+            )
+
+    def test_missing_support_falls_back_to_the_unfiltered_list(self):
+        payload = parse_config(DEFAULTS).for_webview(None)
+        self.assertEqual(payload["sourcePickerLanguages"], DEFAULTS["picker_languages"])
+        self.assertEqual(payload["targetPickerLanguages"], DEFAULTS["picker_languages"])
 
     def test_cache_lifetime_seconds(self):
         self.assertEqual(parse_config(config_with(cache_lifetime_days=2)).cache_lifetime_seconds, 172800)

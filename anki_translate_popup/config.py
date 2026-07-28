@@ -9,10 +9,10 @@ thread.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .translation.base import ConfigurationError
+from .translation.base import ConfigurationError, LanguageSupport
 
 #: Bounds chosen so a typo cannot hang the UI or hammer a provider.
 MIN_TIMEOUT_SECONDS = 1.0
@@ -50,7 +50,8 @@ DEFAULTS: Dict[str, Any] = {
     "pronounce_prompt_shortcut": "x",
     "pronounce_answer_shortcut": "c",
     "stop_speech_shortcut": "z",
-    "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
+    "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"],
+    "deck_language_pairs": {},
     "auto_translate": True,
     "auto_pronounce": True,
     "auto_pronounce_card": True,
@@ -89,6 +90,7 @@ class AddonConfig:
     pronounce_answer_shortcut: str
     stop_speech_shortcut: str
     picker_languages: Tuple[str, ...]
+    deck_language_pairs: Mapping[str, Tuple[str, str]]
     auto_translate: bool
     auto_pronounce: bool
     auto_pronounce_card: bool
@@ -135,12 +137,26 @@ class AddonConfig:
             return self.speech_language
         return chosen
 
-    def for_webview(self) -> Dict[str, Any]:
-        """The subset the JavaScript layer needs.
+    def for_deck(self, deck_id: Optional[int]) -> "AddonConfig":
+        """Apply a saved deck pair, falling back to the global pair."""
+        pair = self.deck_language_pairs.get(str(deck_id)) if deck_id else None
+        if not pair:
+            return self
+        return replace(self, source_language=pair[0], target_language=pair[1])
 
-        Deliberately excludes ``api_key`` and every other secret: this dict is
-        serialised into the reviewer page.
-        """
+    def for_webview(
+        self, language_support: Optional[LanguageSupport] = None
+    ) -> Dict[str, Any]:
+        """The non-secret subset the JavaScript layer needs."""
+        if language_support is None:
+            source_picker = target_picker = list(self.picker_languages)
+        else:
+            source_picker = _filter_picker(
+                self.picker_languages, language_support[0], self.source_language
+            )
+            target_picker = _filter_picker(
+                self.picker_languages, language_support[1], self.target_language
+            )
         return {
             "sourceLanguage": self.source_language,
             "targetLanguage": self.target_language,
@@ -157,6 +173,8 @@ class AddonConfig:
             "pronounceAnswerShortcut": self.pronounce_answer_shortcut,
             "stopSpeechShortcut": self.stop_speech_shortcut,
             "pickerLanguages": list(self.picker_languages),
+            "sourcePickerLanguages": source_picker,
+            "targetPickerLanguages": target_picker,
             "ttsProvider": self.tts_provider,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
@@ -164,6 +182,33 @@ class AddonConfig:
             "fontSize": self.popup_font_size,
             "debug": self.debug_logging,
         }
+
+
+def _filter_picker(
+    configured: Tuple[str, ...], supported: frozenset[str], current: str
+) -> List[str]:
+    """Keep provider-supported choices and the currently selected value."""
+    normalised = {code.lower().replace("_", "-") for code in supported}
+
+    def is_supported(code: str) -> bool:
+        code = code.lower().replace("_", "-")
+        simplified = {"zh-hans", "zh-cn", "zh-sg"}
+        traditional = {"zh-hant", "zh-tw", "zh-hk", "zh-mo"}
+        if code in traditional:
+            return bool(traditional & normalised)
+        if code in simplified:
+            return bool(simplified & normalised)
+        base = code.split("-")[0]
+        return (
+            code in normalised
+            or base in normalised
+            or ("-" not in code and any(item.startswith(base + "-") for item in normalised))
+        )
+
+    result = [code for code in configured if is_supported(code)]
+    if current != "auto" and current not in result:
+        result.append(current)
+    return result
 
 
 def _require_str(raw: Mapping[str, Any], key: str, errors: List[str]) -> str:
@@ -270,6 +315,41 @@ def _require_language_list(raw: Mapping[str, Any], key: str, errors: List[str]) 
     return tuple(codes) if codes else tuple(DEFAULTS[key])
 
 
+def _require_deck_language_pairs(
+    raw: Mapping[str, Any], errors: List[str]
+) -> Dict[str, Tuple[str, str]]:
+    key = "deck_language_pairs"
+    value = raw.get(key, DEFAULTS[key])
+    if not isinstance(value, Mapping):
+        errors.append(f"'{key}' must be an object keyed by deck ID, got {value!r}.")
+        return {}
+
+    pairs: Dict[str, Tuple[str, str]] = {}
+    for raw_deck_id, raw_pair in value.items():
+        deck_id = str(raw_deck_id)
+        if not deck_id.isdigit() or int(deck_id) <= 0:
+            errors.append(f"'{key}' deck IDs must be positive integers, got {raw_deck_id!r}.")
+            continue
+        if (
+            not isinstance(raw_pair, (list, tuple))
+            or len(raw_pair) != 2
+            or not all(isinstance(code, str) for code in raw_pair)
+        ):
+            errors.append(
+                f"'{key}[{deck_id}]' must be [source, target] language codes."
+            )
+            continue
+        source = _parse_language_code(raw_pair[0], allow_auto=True)
+        target = _parse_language_code(raw_pair[1], allow_auto=False)
+        if source is None or target is None:
+            errors.append(
+                f"'{key}[{deck_id}]' must contain valid source/target language codes."
+            )
+            continue
+        pairs[deck_id] = (source, target)
+    return pairs
+
+
 def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
     """Validate ``raw`` and return a typed config.
 
@@ -372,6 +452,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         pronounce_answer_shortcut=_require_str(raw, "pronounce_answer_shortcut", errors),
         stop_speech_shortcut=_require_str(raw, "stop_speech_shortcut", errors),
         picker_languages=_require_language_list(raw, "picker_languages", errors),
+        deck_language_pairs=_require_deck_language_pairs(raw, errors),
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
         auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),

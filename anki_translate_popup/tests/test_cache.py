@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from anki_translate_popup.cache import TranslationCache, make_key, prune_audio_cache
+from anki_translate_popup.examples import Example
 from anki_translate_popup.translation.base import TranslationResult
 
 
@@ -108,6 +109,33 @@ class ReadWriteTest(CacheTestBase):
         self.assertEqual(hit.source_lang, "de")
 
 
+class ExampleCacheTest(CacheTestBase):
+    def test_roundtrip_is_scoped_by_text_and_language_pair(self):
+        cache = self.make_cache()
+        examples = [Example("Das Haus ist alt.", "The house is old.")]
+        cache.set_examples("de", "en", " Haus ", examples)
+
+        self.assertEqual(cache.get_examples("de", "en", "Haus"), examples)
+        self.assertIsNone(cache.get_examples("de", "fr", "Haus"))
+        self.assertIsNone(cache.get_examples("en", "de", "Haus"))
+        self.assertIsNone(cache.get_examples("de", "en", "Auto"))
+
+    def test_purge_removes_expired_examples(self):
+        cache = self.make_cache(lifetime_seconds=10)
+        cache.set_examples("de", "en", "Haus", [Example("Haus.", "House.")])
+        self.clock.advance(11)
+        self.assertEqual(cache.purge_expired(), 1)
+        self.assertIsNone(cache.get_examples("de", "en", "Haus"))
+
+    def test_example_limit_drops_the_oldest_lookup(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=1)
+        cache.set_examples("de", "en", "Haus", [Example("Haus.", "House.")])
+        self.clock.advance(1)
+        cache.set_examples("de", "en", "Auto", [Example("Auto.", "Car.")])
+        self.assertIsNone(cache.get_examples("de", "en", "Haus"))
+        self.assertIsNotNone(cache.get_examples("de", "en", "Auto"))
+
+
 class UnicodeTest(CacheTestBase):
     def test_german_characters_roundtrip(self):
         cache = self.make_cache()
@@ -169,8 +197,10 @@ class ExpiryTest(CacheTestBase):
         cache = self.make_cache()
         cache.set("deepl", "de", "en", "eins", result())
         cache.set("deepl", "de", "en", "zwei", result())
-        self.assertEqual(cache.clear(), 2)
+        cache.set_examples("de", "en", "Haus", [Example("Haus.", "House.")])
+        self.assertEqual(cache.clear(), 3)
         self.assertEqual(cache.count(), 0)
+        self.assertIsNone(cache.get_examples("de", "en", "Haus"))
 
 
 class LimitTest(CacheTestBase):

@@ -10,6 +10,7 @@ import requests
 from anki_translate_popup import examples as examples_module
 from anki_translate_popup.examples import (
     MAX_QUERY_CHARS,
+    MAX_UNSPACED_QUERY_CHARS,
     TatoebaExamples,
     is_example_worthy,
     to_iso3,
@@ -80,6 +81,14 @@ class WorthinessTest(unittest.TestCase):
     def test_empty_rejected(self):
         self.assertFalse(is_example_worthy("   "))
 
+    def test_short_chinese_phrase_is_accepted(self):
+        self.assertTrue(is_example_worthy("漂亮房子", "zh-CN"))
+
+    def test_chinese_sentence_is_gated_by_characters_not_spaces(self):
+        text = "这" * (MAX_UNSPACED_QUERY_CHARS + 1)
+        self.assertLess(len(text), MAX_QUERY_CHARS)
+        self.assertFalse(is_example_worthy(text, "zh"))
+
 
 class FetchTest(unittest.TestCase):
     def make(self, timeout: float = 10) -> TatoebaExamples:
@@ -134,9 +143,18 @@ class FetchTest(unittest.TestCase):
         get.assert_not_called()
 
     def test_auto_source_makes_no_request(self):
-        # "auto" has no ISO 639-3 equivalent, so examples are simply skipped.
+        # The translation coordinator replaces auto with the detected language;
+        # direct unresolved calls still have no ISO 639-3 code to send.
         with patch_get() as get:
             self.assertEqual(self.make().fetch("Haus", "auto", "en"), [])
+        get.assert_not_called()
+
+    def test_long_unspaced_chinese_selection_makes_no_request(self):
+        with patch_get() as get:
+            self.assertEqual(
+                self.make().fetch("这" * (MAX_UNSPACED_QUERY_CHARS + 1), "zh", "en"),
+                [],
+            )
         get.assert_not_called()
 
     # -- malformed and failing responses --

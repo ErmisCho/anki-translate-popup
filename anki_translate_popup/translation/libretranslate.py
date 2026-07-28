@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Set
 
 from .base import (
     ConfigurationError,
+    LanguageSupport,
     ProviderError,
     TranslationRequest,
     TranslationResult,
@@ -41,6 +42,31 @@ class LibreTranslateTranslator(Translator):
                 "'libretranslate_endpoint' must start with http:// or https:// "
                 f"(got {self._endpoint!r})."
             )
+
+    def supported_languages(self) -> LanguageSupport:
+        self.validate()
+        params = {"api_key": self._api_key} if self._api_key else None
+        payload = self._request_json(
+            "GET", f"{self._endpoint}/languages", params=params
+        )
+        if not isinstance(payload, list):
+            raise ProviderError("LibreTranslate returned an unexpected language list.")
+
+        sources: Set[str] = set()
+        targets: Set[str] = set()
+        for entry in payload:
+            if not isinstance(entry, dict) or not isinstance(entry.get("code"), str):
+                continue
+            code = entry["code"].lower()
+            sources.add(code)
+            listed_targets = entry.get("targets")
+            if isinstance(listed_targets, list):
+                targets.update(
+                    target.lower() for target in listed_targets if isinstance(target, str)
+                )
+        if not sources:
+            raise ProviderError("LibreTranslate returned no supported languages.")
+        return frozenset(sources), frozenset(targets or sources)
 
     def translate(self, request: TranslationRequest) -> TranslationResult:
         self.validate()

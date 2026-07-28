@@ -21,6 +21,14 @@ Both accept `0` for unlimited. Eviction runs as a single indexed `DELETE`
 inside the write that `set()` already performs, so the table sits exactly at
 the limit rather than sawtoothing above it.
 
+### ✅ 7. Cache the example lookups
+
+Non-empty Tatoeba results now share `user_files/cache.sqlite` with translations,
+in their own table so neither cache evicts the other. They use the existing
+lifetime, enable switch, and row cap; the key includes the query and both
+languages. Empty results are deliberately retried because Tatoeba's current API
+wrapper also uses `[]` for transient HTTP failures.
+
 ### ✅ 4. Previewer support
 
 The popup now works in the browser's card previewer as well as the reviewer —
@@ -99,41 +107,51 @@ This is also the gear menu's first non-boolean setting. `set_option` takes the
 type from the key rather than the payload, so a webview sending a string at a
 toggle still cannot store one.
 
-### 14. Speech dies after a sync, an edit, or the More menu
+### ✅ 8. Examples when the source language is `auto`
 
-**Partly fixed — needs a report from a real Anki to finish.**
+Example lookup now receives the provider's detected `sourceLang`, including on
+translation-cache hits and fallback-provider results. Tatoeba therefore gets a
+concrete ISO 639-3 language instead of the unresolved `auto` setting.
 
-Reported: after syncing, editing a card, or using the **More** menu,
-pronunciation stops and never starts again. Could not be reproduced here (no
-Anki in this environment), so this was attacked as three separate causes, two
-of which are provable from the code and are now fixed.
+### ✅ 9. Per-deck language pairs
 
-**Fixed — the page loses the pushed text.** Item 12 pushes each card side's
-text into the webview once, as it appears. Anything that rebuilds the reviewer
-page after that push leaves the page holding nothing to say, with no way to ask
-for it, so `x` and `c` stay dead until the *next* card. The page now asks
-Python for the text when it has none (`card_text` bridge command). Python
-answers from `mw.reviewer.card` and, crucially, decides for itself whether the
-answer may be sent — asking is not a way to hear the answer early.
+`deck_language_pairs` stores `[source, target]` by stable deck ID. The popup
+header edits the current card's deck pair; decks without an entry use the
+global `source_language` / `target_language` defaults from the Config dialog.
+The effective pair is shared by translation, examples, header state, and each
+card side's automatic voice selection.
 
-**Fixed — Chromium leaves `speechSynthesis` paused.** Backgrounding the page
-pauses the synthesiser, and nothing resumes it, so every later `speak()` queues
-silently. A sync dialog, the editor and the More menu all background the page.
-`synth.resume()` now runs before each utterance; it is a no-op when nothing is
-paused.
+### ✅ 10. Hide unsupported languages from the dropdowns
 
-**Open — the webview may simply not have keyboard focus.** All three actions
-move focus to a Qt widget, and the reviewer's webview may not get it back.
-Anki's own keys keep working because they are Qt shortcuts; ours are a `keydown`
-listener on the page, so they would go silently dead in exactly this pattern.
-Unproven, and the fix is structural: register the keys through
-`gui_hooks.state_shortcuts_will_change` as well, which costs the system-voice
-support that the webview path exists for.
+`Translator.supported_languages()` now exposes separate source/target
+capabilities. DeepL probes both `/v2/languages` lists and LibreTranslate probes
+`/languages`, always through a background `QueryOp`. Translation pickers are
+filtered after a successful probe, while probe failure leaves the configured
+list untouched and the current pair always remains visible. Voice menus stay
+unfiltered because translation-provider support says nothing about installed
+speech voices.
 
-**How to tell them apart**, if it recurs: set `debug_logging: true`, press the
-key, open the console. A `shortcut:` line means the key arrived and this is not
-a focus problem. No line means the page never saw the key, and the remaining
-cause above is the one to build.
+### ✅ 11. Support English, German, Chinese and Greek
+
+`zh` joins the existing `en`, `de`, and `el` defaults. DeepL targets map to
+`ZH-HANS` or `ZH-HANT` while Chinese sources remain `ZH`; Tatoeba continues to
+use `cmn`. Unspaced Chinese example queries use an eight-character short-phrase
+limit instead of treating every sub-40-character sentence as one word.
+
+Pronunciation remains honest about Windows: `auto` uses an exposed Chinese
+system voice or falls back online; `system` works only when Windows exposes a
+classic SAPI/OneCore voice to Chromium. Narrator-only natural voices are still
+outside Anki's reach.
+
+### ✅ 14. Speech survives sync, edit, and the More menu
+
+The previous text re-fetch and `speechSynthesis.resume()` fixes remain. The
+focus hole is now closed with matching Qt reviewer shortcuts registered through
+`state_shortcuts_will_change`: they are disabled while the webview has focus so
+JavaScript keeps the real user gesture and never double-speaks, then enabled
+when a dialog leaves focus on Qt. The off-focus path uses Anki's audio player;
+`system` mode deliberately stays silent there rather than violating its
+no-network promise. The stop key cancels both Python audio and browser speech.
 
 ### ✅ 15. A key to stop the current pronunciation
 
@@ -177,53 +195,3 @@ system voice already fails in. Only installing a classic SAPI/OneCore voice, or
 the online provider, actually helps.
 
 Revisit only if Qt gains access to natural voices.
-
----
-
-## Open
-
-### 7. Cache the example lookups
-
-Translations and audio are cached; Tatoeba lookups are not, so the same word
-re-queries the corpus (~0.2s) every time. Reuse `TranslationCache` or add a
-small sibling table.
-
-### 8. Examples when the source language is `auto`
-
-Tatoeba needs a concrete ISO 639-3 code, so examples are skipped entirely while
-`source_language` is `auto`. The translation response already carries the
-detected language — fetch examples with that instead of skipping.
-
-### 9. Per-deck or per-notetype language pairs
-
-A German deck and a Spanish deck currently share one global pair. Anki exposes
-the current deck via `mw.col.decks.current()`; a mapping would remove most
-manual swapping.
-
-### 10. Hide unsupported languages from the dropdowns
-
-`picker_languages` is a hand-written list that nothing checks against the active
-provider, so the dropdown happily offers a language the provider will refuse —
-the failure only shows up as an error after you pick it. `Translator` has no
-capability surface at all today; both DeepL and LibreTranslate expose a
-`/languages` endpoint, so add a `supported_languages()` to the ABC and filter
-the list in `config.py::as_payload` before `pickerLanguages` reaches the
-webview. Fall back to the unfiltered list when the probe fails, and keep the
-currently-selected language visible either way, as `config.md` already
-promises.
-
-### 11. Support English, German, Chinese and Greek
-
-`el` is already in the picker defaults, `zh` is not — add it. Chinese needs more
-than a list entry:
-
-- DeepL splits the target into `ZH-HANS` / `ZH-HANT` while the source stays
-  `ZH`; the config validator treats codes as opaque, so it will accept a target
-  the provider rejects.
-- `ISO_639_1_TO_3` maps `zh → cmn`, so Tatoeba examples work once the code is
-  offered.
-- `is_example_worthy` counts words with `str.split()`. Chinese has no spaces, so
-  any sentence under 40 characters counts as one word and gets sent as an
-  example query. Gate on character count for scripts that do not space-separate.
-- Confirm a `zh-CN` voice exists before promising pronunciation — the same
-  Windows voice gap that closed item 3.

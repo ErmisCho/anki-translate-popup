@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, FrozenSet, Optional, Tuple
 
 import requests
 
@@ -38,6 +38,10 @@ class TranslationRequest:
     text: str
     source_lang: str  # ISO code such as "de", or "auto" for detection
     target_lang: str  # ISO code such as "en"
+
+
+LanguageSupport = Tuple[FrozenSet[str], FrozenSet[str]]
+"""Provider-supported source and target language codes, respectively."""
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,10 @@ class Translator(abc.ABC):
     @abc.abstractmethod
     def validate(self) -> None:
         """Raise :class:`ConfigurationError` if this provider cannot be used."""
+
+    def supported_languages(self) -> Optional[LanguageSupport]:
+        """Return supported source/target codes, or ``None`` when unavailable."""
+        return None
 
     # -- shared HTTP plumbing -------------------------------------------------
 

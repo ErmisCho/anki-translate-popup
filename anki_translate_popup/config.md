@@ -83,6 +83,24 @@ use the two-letter part only.
 
 **Default:** `en`
 
+### `deck_language_pairs`
+
+Optional per-deck overrides, keyed by Anki's stable numeric deck ID. Each value
+is `[source, target]`:
+
+```json
+"deck_language_pairs": {
+  "1234567890": ["es", "en"],
+  "9876543210": ["auto", "zh-TW"]
+}
+```
+
+The popup header writes the current card's deck entry automatically. Decks not
+listed here use the global `source_language` / `target_language` pair above;
+edit those globals in the Config dialog.
+
+**Default:** `{}`
+
 ### `api_key`
 
 Your provider API key. Required for DeepL, optional for LibreTranslate
@@ -119,15 +137,16 @@ How long to wait for the provider before giving up. Allowed range: 1–120.
 
 ### `cache_enabled`
 
-Cache translations on disk so the same selection is never paid for twice.
-The cache lives in `user_files/cache.sqlite` inside the add-on folder and
-survives restarts and add-on updates. Delete that file to clear the cache.
+Cache translations and Tatoeba examples on disk so the same selection is not
+requested twice. The cache lives in `user_files/cache.sqlite` inside the add-on
+folder and survives restarts and add-on updates. Delete that file to clear it.
 
 **Default:** `true`
 
 ### `cache_lifetime_days`
 
-How long a cached translation stays valid. Use `0` to keep entries forever.
+How long cached translations and examples stay valid. Use `0` to keep entries
+forever.
 
 **Default:** `30`
 
@@ -279,8 +298,9 @@ how it is actually used.
 
 Examples come from [Tatoeba](https://tatoeba.org), an open corpus of
 human-translated sentences (CC-BY 2.0 FR). They are looked up only for a word
-or short phrase — up to 3 words — because searching a corpus for a whole
-sentence returns nothing useful.
+or short phrase — up to 3 words, or 8 characters for unspaced Chinese — because
+searching a corpus for a whole sentence returns nothing useful. With a source
+of `auto`, the detected language from the translation is used.
 
 Independent of your translation provider: no translation provider still offers
 usage examples. If Tatoeba is unreachable or has no match, the translation is
@@ -315,8 +335,8 @@ Set this to `system` if you want pronunciation to stay strictly offline.
 
 ### `cache_max_entries`
 
-Maximum number of cached translations. Once exceeded, the oldest are dropped.
-Use `0` for no limit.
+Maximum number of cached translations and example lookups, per cache table.
+Once exceeded, the oldest are dropped. Use `0` for no limit.
 
 **Default:** `5000`
 
@@ -367,7 +387,10 @@ thing you are still trying to recall. Both accept the same spelling as
 `lookup_shortcut` (`Alt+P`, `F8`, …) and `""` disables either one.
 
 `card_speech_scope` applies here too: on `first-line` these speak only the
-headword.
+headword. If Sync, Edit, or More leaves focus outside the card, matching Qt
+shortcuts keep the default online-capable modes working. Strict `system` mode
+stays silent off-focus rather than sending text online; click the card to
+restore its system-voice shortcut.
 
 **Defaults:** `"x"` and `"c"`
 
@@ -383,14 +406,19 @@ It stops that one clip and nothing else: the next card, and the next press of
 
 ### `picker_languages`
 
-Languages offered in the dropdowns when you click **DE** or **EN** in the popup
-header. A list of two- or three-letter codes.
+Languages considered for the dropdowns when you click **DE** or **EN** in the
+popup header. A list of language codes.
 
-The source dropdown also offers `auto`; the currently-selected language is
-always shown even if it is not in this list. Clicking the **→** between them
-swaps source and target and re-translates.
+DeepL and LibreTranslate probe their `/languages` APIs in the background and
+hide entries unsupported on that side. If the probe fails, this full list is
+used. The source dropdown also offers `auto`; the current pair always remains
+visible. The voice menus are not filtered because installed speech voices are
+independent of translation-provider support.
 
-**Default:** `["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"]`
+`zh` means simplified Chinese by default. Use `zh-TW`, `zh-HK`, or `zh-HANT`
+for traditional Chinese with DeepL.
+
+**Default:** `["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru", "zh"]`
 
 ### `speech_language`
 
@@ -454,7 +482,9 @@ Then restart Anki. Adding the language in Settings, or adding a Narrator
 With the shipped defaults, selecting text transmits it immediately —
 `auto_translate` sends it to your translation provider, `auto_pronounce` fetches
 audio, and `show_examples` queries Tatoeba. Set those three to `false` for a
-click-to-act popup that sends nothing until you ask it to.
+click-to-act popup that sends no selected text until you ask it to. DeepL and
+LibreTranslate still probe their language-list endpoint when the reviewer opens
+(the DeepL probe authenticates with your API key, but sends no card text).
 
 The popup always says *Spoken by Google (online voice)* when audio came from
 the network, and labels a fallback provider when one answered. **Copy** is

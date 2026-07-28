@@ -34,6 +34,9 @@ ISO_639_1_TO_3 = {
 #: for a whole sentence returns nothing useful and wastes a request.
 MAX_QUERY_CHARS = 40
 MAX_QUERY_WORDS = 3
+#: Chinese does not separate words with spaces; eight characters is roughly
+#: the same short-phrase ceiling as three space-separated words.
+MAX_UNSPACED_QUERY_CHARS = 8
 
 
 @dataclass(frozen=True)
@@ -42,11 +45,13 @@ class Example:
     translation: str  # its translation in the target language
 
 
-def is_example_worthy(text: str) -> bool:
+def is_example_worthy(text: str, source_lang: str = "") -> bool:
     """True when ``text`` is short enough for examples to make sense."""
     stripped = text.strip()
     if not stripped or len(stripped) > MAX_QUERY_CHARS:
         return False
+    if source_lang.strip().replace("_", "-").split("-")[0].lower() == "zh":
+        return len(stripped) <= MAX_UNSPACED_QUERY_CHARS
     return len(stripped.split()) <= MAX_QUERY_WORDS
 
 
@@ -72,7 +77,7 @@ class TatoebaExamples:
         unsupported language, a selection too long to look up, or no matches.
         Network and parsing failures do raise, so the caller can log them.
         """
-        if not is_example_worthy(text):
+        if not is_example_worthy(text, source_lang):
             return []
 
         source = to_iso3(source_lang)

@@ -1,4 +1,4 @@
-"""SQLite-backed translation cache.
+"""SQLite-backed translation and example cache.
 
 Uses one short-lived connection per operation. The cache is touched from
 Anki's background worker threads, and SQLite connections cannot be shared
@@ -9,6 +9,7 @@ that is irrelevant for a user-triggered action.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import sqlite3
 import time
@@ -17,6 +18,7 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Callable, Iterator, List, Optional, Tuple
 
+from .examples import Example
 from .translation.base import TranslationResult
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,14 @@ CREATE TABLE IF NOT EXISTS translations (
 );
 CREATE INDEX IF NOT EXISTS idx_translations_created_at
     ON translations (created_at);
+
+CREATE TABLE IF NOT EXISTS example_lookups (
+    key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_example_lookups_created_at
+    ON example_lookups (created_at);
 """
 
 
@@ -95,7 +105,7 @@ def prune_audio_cache(directory: Path, max_bytes: int) -> int:
 
 
 class TranslationCache:
-    """Persistent cache with a time-to-live and a row-count limit.
+    """Persistent translation/example cache with a time-to-live and row limits.
 
     A ``lifetime_seconds`` of ``0`` means entries never expire; a
     ``max_entries`` of ``0`` means the number of rows is unlimited.
@@ -190,24 +200,74 @@ class TranslationCache:
                         self._clock(),
                     ),
                 )
-                self._evict(conn)
+                self._evict(conn, "translations")
         except sqlite3.Error:
             logger.exception("Cache write failed for provider %s", provider)
 
-    def _evict(self, conn: sqlite3.Connection) -> int:
-        """Delete everything but the newest ``max_entries`` rows. Returns the count.
+    def get_examples(
+        self, source_lang: str, target_lang: str, text: str
+    ) -> Optional[List[Example]]:
+        """Return cached Tatoeba examples, or ``None`` on a miss."""
+        key = make_key("tatoeba", source_lang, target_lang, text.strip())
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT payload, created_at FROM example_lookups WHERE key = ?",
+                    (key,),
+                ).fetchone()
+        except sqlite3.Error:
+            logger.exception("Example cache lookup failed")
+            return None
 
-        One indexed DELETE rather than a COUNT followed by a conditional
-        DELETE: it is a single statement on the same connection and the
-        ``created_at`` index covers the ordering, so running it on every write
-        is cheaper than the extra round trip a check would add - and the cache
-        sits exactly at the limit instead of sawtoothing above it.
-        """
+        if row is None:
+            return None
+        payload, created_at = row
+        if self._is_expired(created_at):
+            self._delete_example(key)
+            return None
+
+        try:
+            values = json.loads(payload)
+            if not isinstance(values, list) or any(
+                not isinstance(item, list)
+                or len(item) != 2
+                or not all(isinstance(value, str) for value in item)
+                for item in values
+            ):
+                raise ValueError("unexpected example cache shape")
+            return [Example(text=item[0], translation=item[1]) for item in values]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("Ignoring malformed example cache entry", exc_info=True)
+            self._delete_example(key)
+            return None
+
+    def set_examples(
+        self, source_lang: str, target_lang: str, text: str, examples: List[Example]
+    ) -> None:
+        """Store a successful Tatoeba result list."""
+        key = make_key("tatoeba", source_lang, target_lang, text.strip())
+        try:
+            payload = json.dumps(
+                [[example.text, example.translation] for example in examples],
+                ensure_ascii=False,
+            )
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO example_lookups "
+                    "(key, payload, created_at) VALUES (?, ?, ?)",
+                    (key, payload, self._clock()),
+                )
+                self._evict(conn, "example_lookups")
+        except (sqlite3.Error, TypeError):
+            logger.exception("Example cache write failed")
+
+    def _evict(self, conn: sqlite3.Connection, table: str) -> int:
+        """Delete everything but the newest ``max_entries`` rows from ``table``."""
         if self._max_entries == 0:
             return 0
         cursor = conn.execute(
-            "DELETE FROM translations WHERE key NOT IN ("
-            "SELECT key FROM translations ORDER BY created_at DESC LIMIT ?)",
+            f"DELETE FROM {table} WHERE key NOT IN ("
+            f"SELECT key FROM {table} ORDER BY created_at DESC LIMIT ?)",
             (self._max_entries,),
         )
         return cursor.rowcount or 0
@@ -219,6 +279,13 @@ class TranslationCache:
         except sqlite3.Error:
             logger.exception("Cache delete failed")
 
+    def _delete_example(self, key: str) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM example_lookups WHERE key = ?", (key,))
+        except sqlite3.Error:
+            logger.exception("Example cache delete failed")
+
     def purge_expired(self) -> int:
         """Drop every expired row. Returns the number deleted."""
         if self._lifetime == 0:
@@ -226,10 +293,13 @@ class TranslationCache:
         cutoff = self._clock() - self._lifetime
         try:
             with self._connect() as conn:
-                cursor = conn.execute(
+                translations = conn.execute(
                     "DELETE FROM translations WHERE created_at < ?", (cutoff,)
-                )
-                return cursor.rowcount or 0
+                ).rowcount
+                examples = conn.execute(
+                    "DELETE FROM example_lookups WHERE created_at < ?", (cutoff,)
+                ).rowcount
+                return (translations or 0) + (examples or 0)
         except sqlite3.Error:
             logger.exception("Cache purge failed")
             return 0
@@ -240,7 +310,7 @@ class TranslationCache:
             return 0
         try:
             with self._connect() as conn:
-                return self._evict(conn)
+                return self._evict(conn, "translations")
         except sqlite3.Error:
             logger.exception("Cache limit enforcement failed")
             return 0
@@ -248,8 +318,9 @@ class TranslationCache:
     def clear(self) -> int:
         try:
             with self._connect() as conn:
-                cursor = conn.execute("DELETE FROM translations")
-                return cursor.rowcount or 0
+                translations = conn.execute("DELETE FROM translations").rowcount
+                examples = conn.execute("DELETE FROM example_lookups").rowcount
+                return (translations or 0) + (examples or 0)
         except sqlite3.Error:
             logger.exception("Cache clear failed")
             return 0

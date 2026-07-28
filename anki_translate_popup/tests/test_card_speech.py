@@ -615,5 +615,81 @@ class ResendCardTextTest(unittest.TestCase):
         self.assertEqual(self.pushed()["speak"], "prompt")
 
 
+class DeckLanguagePersistenceTest(unittest.TestCase):
+    def test_header_change_is_saved_for_the_current_deck(self):
+        mw = mock.MagicMock()
+        mw.reviewer.card = FakeCard()
+        mw.reviewer.card.did = 42
+        mw.reviewer.card.odid = 0
+        with mock.patch.object(addon, "mw", mw, create=True):
+            with mock.patch.object(addon, "_raw_config", return_value=dict(DEFAULTS)):
+                addon._set_languages('{"source": "es", "target": "en"}')
+
+        written = mw.addonManager.writeConfig.call_args.args[1]
+        self.assertEqual(written["deck_language_pairs"], {"42": ["es", "en"]})
+        self.assertEqual(written["source_language"], "de")
+
+
+class QtSpeechShortcutFallbackTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.mw = mock.MagicMock()
+        self.mw.reviewer.card = FakeCard()
+        self.mw.reviewer.state = "question"
+        self.mw.reviewer.web.hasFocus.return_value = False
+        patcher = mock.patch.object(addon, "mw", self.mw, create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        raw = mock.patch.object(addon, "_raw_config", return_value=dict(DEFAULTS))
+        raw.start()
+        self.addCleanup(raw.stop)
+        addon._qt_speech_shortcuts = []
+        addon._qt_speech_shortcut_keys = []
+        self.addCleanup(setattr, addon, "_qt_speech_shortcuts", [])
+        self.addCleanup(setattr, addon, "_qt_speech_shortcut_keys", [])
+
+    def test_fallback_shortcuts_are_added_only_to_review(self):
+        shortcuts = []
+        addon.on_state_shortcuts_will_change("review", shortcuts)
+        self.assertEqual([key for key, _callback in shortcuts], ["x", "c", "z"])
+
+        elsewhere = []
+        addon.on_state_shortcuts_will_change("deckBrowser", elsewhere)
+        self.assertEqual(elsewhere, [])
+
+    def test_qt_fallback_is_disabled_while_the_webview_has_focus(self):
+        shortcuts = [mock.MagicMock() for _ in range(3)]
+        for shortcut, key in zip(shortcuts, ("X", "C", "Z")):
+            shortcut.key.return_value.toString.return_value = key
+        self.mw.stateShortcuts = shortcuts
+        self.mw.reviewer.web.hasFocus.return_value = True
+        addon._qt_speech_shortcut_keys = ["x", "c", "z"]
+        addon._capture_qt_speech_shortcuts()
+        for shortcut in shortcuts:
+            shortcut.setEnabled.assert_called_with(False)
+
+        self.mw.reviewer.web.hasFocus.return_value = False
+        addon._sync_qt_speech_shortcuts()
+        for shortcut in shortcuts:
+            shortcut.setEnabled.assert_called_with(True)
+
+    def test_off_focus_prompt_uses_the_online_python_path(self):
+        with mock.patch.object(addon, "_qt_stop_speech") as stop:
+            with mock.patch.object(addon, "_start_speech") as start:
+                addon._qt_pronounce_card_side(is_answer=False)
+        stop.assert_called_once_with()
+        start.assert_called_once_with(
+            self.mw.reviewer.web, 0, "Das Haus", "de-DE"
+        )
+
+    def test_hidden_answer_and_system_only_mode_stay_silent(self):
+        with mock.patch.object(addon, "_start_speech") as start:
+            addon._qt_pronounce_card_side(is_answer=True)
+            with mock.patch.object(
+                addon, "_raw_config", return_value=dict(DEFAULTS, tts_provider="system")
+            ):
+                addon._qt_pronounce_card_side(is_answer=False)
+        start.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
