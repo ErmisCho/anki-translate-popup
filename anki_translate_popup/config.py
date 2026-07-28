@@ -48,6 +48,7 @@ DEFAULTS: Dict[str, Any] = {
     "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": True,
     "auto_pronounce": True,
+    "auto_pronounce_card": True,
     "show_examples": True,
     "tts_provider": "auto",
     "speech_language": "de-DE",
@@ -77,6 +78,7 @@ class AddonConfig:
     picker_languages: Tuple[str, ...]
     auto_translate: bool
     auto_pronounce: bool
+    auto_pronounce_card: bool
     show_examples: bool
     tts_provider: str
     speech_language: str
@@ -100,6 +102,8 @@ class AddonConfig:
             "targetLanguage": self.target_language,
             "autoTranslate": self.auto_translate,
             "autoPronounce": self.auto_pronounce,
+            "autoPronounceCard": self.auto_pronounce_card,
+            "showExamples": self.show_examples,
             "lookupShortcut": self.lookup_shortcut,
             "pickerLanguages": list(self.picker_languages),
             "ttsProvider": self.tts_provider,
@@ -303,6 +307,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         picker_languages=_require_language_list(raw, "picker_languages", errors),
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
+        auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),
         show_examples=_require_bool(raw, "show_examples", errors),
         tts_provider=tts_provider,
         speech_language=speech_language,

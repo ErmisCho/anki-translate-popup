@@ -235,6 +235,34 @@
     color: var(--atp-accent) !important;
 }
 
+/* Settings rows: a tick column plus a sentence-case label, so they read as
+   switches rather than as the uppercase language codes above. */
+.atp-popup .atp-menu-toggle {
+    display: flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    letter-spacing: normal !important;
+    font-weight: 500 !important;
+}
+
+.atp-popup .atp-toggle-tick {
+    flex: 0 0 auto !important;
+    width: 11px !important;
+    text-align: center !important;
+    color: var(--atp-accent) !important;
+    font-weight: 700 !important;
+}
+
+.atp-popup .atp-toggle-label {
+    white-space: nowrap !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+}
+
+.atp-popup .atp-menu-toggle[aria-checked="false"] .atp-toggle-label {
+    color: var(--atp-muted) !important;
+}
+
 .atp-popup .atp-actions {
     display: flex !important;
     align-items: center !important;

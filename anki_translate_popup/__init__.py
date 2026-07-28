@@ -16,9 +16,12 @@ wiring is skipped when ``aqt`` is unavailable.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
+import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -242,6 +245,155 @@ def _synthesize_blocking(text: str) -> str:
     return str(path)
 
 
+#: Toggles the popup's gear menu is allowed to change. An allowlist, because
+#: this arrives from the webview and writes straight into the stored config.
+_TOGGLEABLE_OPTIONS = (
+    "auto_translate",
+    "auto_pronounce",
+    "auto_pronounce_card",
+    "show_examples",
+)
+
+ANSWER_DIVIDER = "<hr id=answer>"
+
+# Deliberately not anki.utils.strip_html: that call needs Anki's Rust i18n
+# backend to be initialised, which would make this function untestable outside
+# a running Anki. Tags become spaces so sibling blocks do not run together.
+_STYLE_SCRIPT_RE = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_AV_TAG_RE = re.compile(r"\[(?:sound|anki:tts)[^\]]*\]", re.IGNORECASE)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def card_side_text(rendered: str, *, is_answer: bool) -> str:
+    """Plain text of one card side, ready to be spoken.
+
+    Anki renders the answer as question + divider + answer, so speaking the raw
+    answer would repeat the question on every card.
+    """
+    if is_answer and ANSWER_DIVIDER in rendered:
+        rendered = rendered.split(ANSWER_DIVIDER, 1)[1]
+
+    text = _STYLE_SCRIPT_RE.sub(" ", rendered)
+    # "[sound:hello.mp3]" is a media reference, not something to read aloud.
+    text = _AV_TAG_RE.sub(" ", text)
+    text = _TAG_RE.sub(" ", text)
+    return " ".join(html.unescape(text).split())
+
+
+#: Anki can emit reviewer_did_show_question more than once for a single card
+#: (a re-render fires it again), and each one would queue another clip. Ignore
+#: a repeat of the same side within this window, but not a genuine re-review
+#: later on.
+AUTO_SPEAK_DEDUPE_SECONDS = 2.0
+_last_auto_spoken: Optional[Tuple[int, bool, float]] = None
+
+
+def _is_duplicate_card_side(card: Any, is_answer: bool, now: float) -> bool:
+    global _last_auto_spoken
+    card_id = int(getattr(card, "id", 0) or 0)
+    previous = _last_auto_spoken
+    if (
+        previous is not None
+        and previous[0] == card_id
+        and previous[1] == is_answer
+        and now - previous[2] < AUTO_SPEAK_DEDUPE_SECONDS
+    ):
+        return True
+    _last_auto_spoken = (card_id, is_answer, now)
+    return False
+
+
+def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
+    """Speak a card side the moment it appears, with no user interaction.
+
+    Driven from Python rather than the webview on purpose: the browser's
+    speechSynthesis needs a transient user activation, and a card appearing is
+    not one, so the JS path would fail with "not-allowed". Anki's own audio
+    player has no such restriction.
+    """
+    config, error = _load_config()
+    if error or not config.auto_pronounce_card:
+        return
+    # A system voice would need the same missing gesture, so this feature is
+    # only available through the online provider.
+    if config.tts_provider == "system":
+        return
+    if _is_duplicate_card_side(card, is_answer, time.monotonic()):
+        logger.debug("Skipping duplicate auto-pronounce for the same card side")
+        return
+
+    try:
+        text = card_side_text(
+            card.answer() if is_answer else card.question(), is_answer=is_answer
+        )
+    except Exception:  # noqa: BLE001 - never let this break the reviewer
+        logger.exception("Could not read the card text for auto-pronounce")
+        return
+
+    if not text:
+        return
+    if len(text) > MAX_SPEECH_CHARS:
+        logger.debug("Card side too long to auto-pronounce (%s chars)", len(text))
+        return
+
+    def op(_col: Any) -> str:
+        return _synthesize_blocking(text)
+
+    def success(path: str) -> None:
+        from anki.sound import SoundOrVideoTag
+        from aqt.sound import av_player
+
+        # append rather than play: play_file() clears the queue, which would cut
+        # off any [sound:] tag Anki is already playing for this card.
+        av_player.append_tags([SoundOrVideoTag(filename=path)])
+
+    def failure(exc: Exception) -> None:
+        # Unprompted playback must stay quiet about its failures: the user did
+        # not ask for this right now, so a popup or banner would be noise.
+        logger.warning("Card auto-pronounce failed: %s", exc)
+
+    (
+        QueryOp(parent=mw, op=op, success=success)
+        .without_collection()
+        .failure(failure)
+        .run_in_background()
+    )
+
+
+def on_reviewer_did_show_question(card: Any) -> None:
+    _on_card_side_shown(card, is_answer=False)
+
+
+def on_reviewer_did_show_answer(card: Any) -> None:
+    _on_card_side_shown(card, is_answer=True)
+
+
+def _set_option(raw_payload: str) -> None:
+    """Flip one boolean setting from the popup's gear menu."""
+    try:
+        payload = json.loads(raw_payload)
+        key = str(payload["key"])
+        value = bool(payload["value"])
+    except (ValueError, TypeError, KeyError):
+        logger.exception("Malformed set_option payload")
+        return
+
+    if key not in _TOGGLEABLE_OPTIONS:
+        logger.warning("Refusing to set unknown option %r from the webview", key)
+        return
+
+    raw = _raw_config()
+    raw[key] = value
+    try:
+        parse_config(raw)
+    except ConfigurationError as exc:
+        logger.warning("Refusing invalid option change (%s=%s): %s", key, value, exc)
+        return
+
+    mw.addonManager.writeConfig(__name__, raw)
+    logger.debug("Option %s set to %s", key, value)
+
+
 def _start_speech(web: Any, request_id: int, text: str) -> None:
     text = text.strip()
     if not text:
@@ -386,6 +538,10 @@ def on_js_message(
 
     if command == "set_languages":
         _set_languages(raw_payload)
+        return True, None
+
+    if command == "set_option":
+        _set_option(raw_payload)
         return True, None
 
     if command not in ("translate", "speak", "copy"):
@@ -547,6 +703,8 @@ def setup() -> None:
     mw.addonManager.setConfigUpdatedAction(__name__, on_config_updated)
     gui_hooks.webview_will_set_content.append(on_webview_will_set_content)
     gui_hooks.webview_did_receive_js_message.append(on_js_message)
+    gui_hooks.reviewer_did_show_question.append(on_reviewer_did_show_question)
+    gui_hooks.reviewer_did_show_answer.append(on_reviewer_did_show_answer)
     logger.info("%s loaded", ADDON_NAME)
 
 

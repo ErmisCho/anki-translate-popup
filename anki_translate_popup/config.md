@@ -10,6 +10,10 @@ and `auto_pronounce` below to turn that off.
 
 Changes take effect immediately — you do not need to restart Anki.
 
+The four switches you are most likely to change are also on the **gear icon**
+in the popup itself: auto-translate selection, auto-pronounce selection,
+auto-pronounce card, and show examples. Flipping one there writes it here.
+
 **Out of the box** this uses the unofficial Google Translate endpoint, so it
 works with no API key and no signup. That endpoint is undocumented and using it
 may breach Google's Terms of Service — see [Privacy](#privacy) below, and switch
@@ -141,6 +145,29 @@ translate button.
 Speak the selection as soon as you select it. Combined with `tts_provider`
 resolving to online audio, this also transmits the selection on every
 selection. Set to `false` if you would rather press the speaker yourself.
+
+**Default:** `true`
+
+### `auto_pronounce_card`
+
+Speak the card side as soon as it appears, before you touch anything. Shows the
+German, hears the German. Also speaks the answer side when you reveal it — only
+the answer part, not a repeat of the question.
+
+Toggleable from the **gear icon** in the popup, so you can silence it mid-review
+without opening this file.
+
+Two things to know:
+
+* **It only works with online audio.** The browser's speech API requires a user
+  gesture, and a card appearing is not one, so this is driven from Python
+  through Anki's own audio player. If `tts_provider` is `system`, card
+  auto-pronounce does nothing.
+* **Each new card is a network request** unless its audio is already cached.
+  Re-reviews are free; a fresh deck is one request per card.
+
+It never interrupts a card's own `[sound:]` audio — the clip is queued after it,
+not played over it.
 
 **Default:** `true`
 

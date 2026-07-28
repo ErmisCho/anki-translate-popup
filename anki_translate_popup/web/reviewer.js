@@ -26,6 +26,10 @@
         speechRate: 0.9,
         fontSize: 14,
         debug: false,
+        autoTranslate: true,
+        autoPronounce: true,
+        autoPronounceCard: true,
+        showExamples: true,
         lookupShortcut: "Ctrl+Shift+T",
         pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     };
@@ -100,6 +104,21 @@
         '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' +
         "</svg>";
 
+    var ICON_GEAR =
+        SVG_OPEN +
+        ' class="atp-glyph">' +
+        '<circle cx="12" cy="12" r="3"></circle>' +
+        '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06' +
+        "a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09" +
+        "A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83" +
+        "l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09" +
+        "A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83" +
+        "l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09" +
+        "a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83" +
+        "l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09" +
+        'a1.65 1.65 0 0 0-1.51 1z"></path>' +
+        "</svg>";
+
     var ICON_CHECK =
         SVG_OPEN +
         ' class="atp-glyph atp-glyph--check">' +
@@ -126,6 +145,9 @@
         '            title="Pronounce" aria-label="Pronounce">' + ICON_SPEAKER + "</button>",
         '    <button type="button" class="atp-btn atp-copy"',
         '            title="Copy" aria-label="Copy">' + ICON_COPY + ICON_CHECK + "</button>",
+        '    <button type="button" class="atp-btn atp-settings" aria-haspopup="true"',
+        '            aria-expanded="false" title="Settings"',
+        '            aria-label="Settings">' + ICON_GEAR + "</button>",
         "  </div>",
         '  <button type="button" class="atp-close" title="Close (Esc)" aria-label="Close">&times;</button>',
         "</div>",
@@ -158,7 +180,13 @@
             translate: root.querySelector(".atp-translate"),
             pronounce: root.querySelector(".atp-pronounce"),
             copy: root.querySelector(".atp-copy"),
+            settings: root.querySelector(".atp-settings"),
         };
+
+        el.settings.addEventListener("click", function (event) {
+            event.preventDefault();
+            toggleSettings();
+        });
 
         el.close.addEventListener("click", function (event) {
             event.preventDefault();
@@ -308,6 +336,7 @@
         var current = which === "source" ? config.sourceLanguage : config.targetLanguage;
 
         el.menu.textContent = "";
+        el.menu.setAttribute("role", "listbox"); // the settings menu sets "menu"
         languageOptions(which).forEach(function (code) {
             var item = document.createElement("div");
             item.className = "atp-menu-item";
@@ -352,6 +381,80 @@
 
     function isPickerOpen() {
         return !!pickerTrigger;
+    }
+
+    // -- settings menu --------------------------------------------------------
+
+    /*
+     * Each entry maps the webview's camelCase config field to the snake_case
+     * key Python stores. Python re-checks the key against its own allowlist, so
+     * a wrong name here is refused rather than written.
+     */
+    var SETTING_ITEMS = [
+        { key: "auto_translate", field: "autoTranslate", label: "Auto-translate selection" },
+        { key: "auto_pronounce", field: "autoPronounce", label: "Auto-pronounce selection" },
+        { key: "auto_pronounce_card", field: "autoPronounceCard", label: "Auto-pronounce card" },
+        { key: "show_examples", field: "showExamples", label: "Show examples" },
+    ];
+
+    function toggleSettings() {
+        if (pickerTrigger === el.settings) {
+            closePicker();
+            return;
+        }
+        openSettings();
+    }
+
+    function openSettings() {
+        closePicker();
+        el.menu.textContent = "";
+        el.menu.setAttribute("role", "menu");
+
+        SETTING_ITEMS.forEach(function (setting) {
+            var item = document.createElement("div");
+            item.className = "atp-menu-item atp-menu-toggle";
+            item.setAttribute("role", "menuitemcheckbox");
+            item.tabIndex = 0;
+
+            var tick = document.createElement("span");
+            tick.className = "atp-toggle-tick";
+            var label = document.createElement("span");
+            label.className = "atp-toggle-label";
+            label.textContent = setting.label;
+            item.appendChild(tick);
+            item.appendChild(label);
+
+            function render() {
+                var on = !!config[setting.field];
+                // A tick glyph rather than a checkbox: no form control to
+                // inherit a card's input styling.
+                tick.textContent = on ? "✓" : "";
+                item.setAttribute("aria-checked", on ? "true" : "false");
+            }
+            render();
+
+            onActivate(item, function () {
+                config[setting.field] = !config[setting.field];
+                render();
+                if (typeof pycmd === "function") {
+                    pycmd(
+                        BRIDGE + "set_option:" +
+                        JSON.stringify({ key: setting.key, value: !!config[setting.field] })
+                    );
+                }
+                // Deliberately stays open: flipping two switches is common.
+            });
+            el.menu.appendChild(item);
+        });
+
+        el.menu.hidden = false;
+        // Right-aligned under the gear, then clamped so a wide menu opened from
+        // the rightmost button cannot hang outside the popup.
+        var left = el.settings.offsetLeft + el.settings.offsetWidth - el.menu.offsetWidth;
+        el.menu.style.left = Math.max(0, Math.min(left, popup.clientWidth - el.menu.offsetWidth)) + "px";
+        el.menu.style.top = el.settings.offsetTop + el.settings.offsetHeight + 4 + "px";
+        el.settings.setAttribute("aria-expanded", "true");
+        pickerTrigger = el.settings;
     }
 
     /**

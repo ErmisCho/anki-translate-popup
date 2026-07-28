@@ -16,6 +16,7 @@
     "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": true,
     "auto_pronounce": true,
+    "auto_pronounce_card": true,
     "show_examples": true,
     "tts_provider": "auto",
     "speech_language": "de-DE",

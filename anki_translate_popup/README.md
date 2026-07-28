@@ -351,6 +351,10 @@ Set up a deck with German cards, then work through these.
 - [ ] **Click outside** → popup closes
 - [ ] Click **×** → popup closes
 - [ ] Hover the speaker and clipboard icons → tooltips read *Pronounce* and *Copy*
+- [ ] Click the **gear** → four toggles with ticks matching the current config
+- [ ] Flip a toggle → tick changes, menu stays open, setting persists after reopening the popup
+- [ ] Flip one in the gear, then check Tools → Add-ons → Config → the same value is there
+- [ ] Escape with the gear menu open → closes the menu only; a second Escape closes the popup
 - [ ] Click the clipboard → turns into a tick for ~1s, then back; paste elsewhere to confirm
 - [ ] Select text *inside* the popup → popup does not reset
 - [ ] Resize the window while open → popup closes cleanly
@@ -410,6 +414,12 @@ Set up a deck with German cards, then work through these.
 
 ### Pronunciation
 
+- [ ] **Show a card and touch nothing** → the German side is spoken automatically
+- [ ] Reveal the answer → the **answer only** is spoken, not the question again
+- [ ] Same card side re-rendering → spoken once, not twice
+- [ ] A card with its own `[sound:]` audio → Anki's clip plays first, the spoken text follows, neither is cut off
+- [ ] Turn *Auto-pronounce card* off in the gear → next card is silent
+- [ ] Set `tts_provider: "system"` → card auto-pronounce stops (needs a user gesture the browser will not grant)
 - [ ] Default (`tts_provider: "auto"`), **no German voice installed** → German audio is heard, status says *Spoken by Google (online voice)*
 - [ ] Press Pronounce again on the same text → instant (served from `user_files/tts/`)
 - [ ] With a **German system voice installed** → uses it, status names the voice, nothing goes online
