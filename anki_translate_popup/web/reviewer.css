@@ -1,0 +1,279 @@
+/*
+ * Translate & Pronounce Popup - reviewer styles.
+ *
+ * The popup lives in the same document as the card, so the card template's CSS
+ * applies to it. Templates routinely use broad selectors with `!important`
+ * (`div { color: hotpink !important }`), which beat a plain add-on rule no
+ * matter how specific. Every inherited typography and colour property is
+ * therefore re-stated with `!important` in the two reset blocks below, and the
+ * per-element rules that need to differ carry `!important` plus higher
+ * specificity so they still win inside the popup.
+ *
+ * Light/dark follows Anki, which puts `night-mode` on <html> and updates it
+ * live via the theme_did_change hook - no reload and no Python needed.
+ */
+
+.atp-popup {
+    /* Light theme (default). */
+    --atp-bg: #ffffff;
+    --atp-fg: #1f2328;
+    --atp-muted: #6b747e;
+    --atp-border: #d5dae0;
+    --atp-shadow: rgba(15, 23, 42, 0.18);
+    --atp-hover: rgba(15, 23, 42, 0.07);
+    --atp-active: rgba(15, 23, 42, 0.13);
+    --atp-accent: #2b6cb0;
+    --atp-error-bg: #fdecec;
+    --atp-error-fg: #9b1c1c;
+    --atp-result-bg: #f6f8fa;
+    --atp-font-size: 14px;
+    --atp-font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    z-index: 2147483000 !important;
+
+    box-sizing: border-box !important;
+    max-width: min(340px, calc(100vw - 16px)) !important;
+    min-width: 210px !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 8px 10px 10px !important;
+    margin: 0 !important;
+    float: none !important;
+
+    background: var(--atp-bg) !important;
+    border: 1px solid var(--atp-border) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 6px 24px var(--atp-shadow) !important;
+
+    font-size: var(--atp-font-size) !important;
+
+    cursor: default !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+}
+
+/* Shared typography reset: root and descendants, so no card rule leaks in. */
+.atp-popup,
+.atp-popup * {
+    font-family: var(--atp-font-stack) !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    font-variant: normal !important;
+    line-height: 1.45 !important;
+    text-align: left !important;
+    text-transform: none !important;
+    text-decoration: none !important;
+    text-shadow: none !important;
+    text-indent: 0 !important;
+    letter-spacing: normal !important;
+    word-spacing: normal !important;
+    white-space: normal !important;
+    direction: ltr !important;
+    color: var(--atp-fg) !important;
+}
+
+.atp-popup * {
+    box-sizing: border-box !important;
+    font-size: 1em !important;
+    float: none !important;
+}
+
+:root.night-mode .atp-popup,
+:root[data-bs-theme="dark"] .atp-popup {
+    --atp-bg: #2b2f36;
+    --atp-fg: #e6e8ea;
+    --atp-muted: #99a2ad;
+    --atp-border: #454b54;
+    --atp-shadow: rgba(0, 0, 0, 0.55);
+    --atp-hover: rgba(255, 255, 255, 0.1);
+    --atp-active: rgba(255, 255, 255, 0.17);
+    --atp-accent: #7cb0e8;
+    --atp-error-bg: #4a2726;
+    --atp-error-fg: #ffb4b0;
+    --atp-result-bg: #343941;
+}
+
+.atp-popup[hidden] {
+    display: none !important;
+}
+
+/* -- header: language pair on the left, actions and close on the right -- */
+
+.atp-popup .atp-header {
+    display: flex !important;
+    align-items: center !important;
+    gap: 2px !important;
+    margin: 0 0 6px !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+.atp-popup .atp-langs {
+    /* Pushes everything after it to the right edge. */
+    margin: 0 8px 0 2px !important;
+    margin-right: auto !important;
+    font-size: 0.76em !important;
+    font-weight: 600 !important;
+    color: var(--atp-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    white-space: nowrap !important;
+}
+
+.atp-popup .atp-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 1px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+/*
+ * Ghost buttons: no border, no fill, just the glyph. They gain a faint tint on
+ * hover, which reads as "elegant" precisely because nothing is drawn until the
+ * pointer is actually over the target.
+ */
+.atp-popup .atp-btn,
+.atp-popup .atp-close {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 auto !important;
+    width: 25px !important;
+    height: 25px !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    color: var(--atp-muted) !important;
+    cursor: pointer !important;
+    outline: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    transition: background-color 110ms ease, color 110ms ease !important;
+}
+
+.atp-popup .atp-close {
+    margin-left: 3px !important;
+    font-size: 1.05em !important;
+    line-height: 1 !important;
+    text-align: center !important;
+}
+
+.atp-popup .atp-btn:hover:not(:disabled),
+.atp-popup .atp-close:hover {
+    background: var(--atp-hover) !important;
+    color: var(--atp-fg) !important;
+}
+
+.atp-popup .atp-btn:active:not(:disabled),
+.atp-popup .atp-close:active {
+    background: var(--atp-active) !important;
+}
+
+/* Keyboard users still get a visible target. */
+.atp-popup .atp-btn:focus-visible,
+.atp-popup .atp-close:focus-visible {
+    background: var(--atp-hover) !important;
+    box-shadow: 0 0 0 2px var(--atp-accent) !important;
+    color: var(--atp-fg) !important;
+}
+
+.atp-popup .atp-btn:disabled {
+    opacity: 0.4 !important;
+    cursor: default !important;
+}
+
+.atp-popup .atp-glyph {
+    width: 15px !important;
+    height: 15px !important;
+    display: block !important;
+    /* Card CSS cannot reach these: stroke/fill are not inherited text
+       properties, and `currentColor` follows the button's themed colour. */
+    color: inherit !important;
+    pointer-events: none;
+}
+
+/* Copy confirmation: swap the clipboard for a tick, since there is no label. */
+.atp-popup .atp-glyph--check,
+.atp-popup .atp-copy.atp-copied .atp-glyph--copy {
+    display: none !important;
+}
+
+.atp-popup .atp-copy.atp-copied .atp-glyph--check {
+    display: block !important;
+}
+
+.atp-popup .atp-copy.atp-copied {
+    color: var(--atp-accent) !important;
+}
+
+.atp-popup.atp-busy .atp-translate {
+    cursor: progress !important;
+}
+
+/* -- body -- */
+
+.atp-popup .atp-source {
+    /* The selection can be a long sentence or one unbroken compound noun. */
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 2px !important;
+    background: transparent !important;
+    overflow-wrap: anywhere !important;
+    max-height: 5.8em !important;
+    overflow-y: auto !important;
+    font-weight: 600 !important;
+    user-select: text !important;
+}
+
+.atp-popup .atp-result {
+    display: block !important;
+    margin: 7px 0 0 !important;
+    padding: 6px 9px !important;
+    background: var(--atp-result-bg) !important;
+    border: 0 !important;
+    border-left: 3px solid var(--atp-accent) !important;
+    border-radius: 5px !important;
+    overflow-wrap: anywhere !important;
+    max-height: 9em !important;
+    overflow-y: auto !important;
+    user-select: text !important;
+}
+
+.atp-popup .atp-status {
+    display: block !important;
+    margin: 6px 0 0 !important;
+    padding: 0 2px !important;
+    background: transparent !important;
+    font-size: 0.83em !important;
+    overflow-wrap: anywhere !important;
+}
+
+.atp-popup .atp-status[hidden],
+.atp-popup .atp-result[hidden] {
+    display: none !important;
+}
+
+.atp-popup .atp-status--info {
+    color: var(--atp-muted) !important;
+}
+
+.atp-popup .atp-status--loading {
+    color: var(--atp-accent) !important;
+}
+
+.atp-popup .atp-status--error {
+    padding: 6px 8px !important;
+    color: var(--atp-error-fg) !important;
+    background: var(--atp-error-bg) !important;
+    border-radius: 5px !important;
+    user-select: text !important;
+}

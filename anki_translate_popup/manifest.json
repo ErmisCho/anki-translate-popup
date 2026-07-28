@@ -1,0 +1,8 @@
+{
+    "package": "anki_translate_popup",
+    "name": "Translate & Pronounce Popup",
+    "human_version": "1.0.0",
+    "min_point_version": 250200,
+    "homepage": "",
+    "conflicts": []
+}

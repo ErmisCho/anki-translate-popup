@@ -1,0 +1,18 @@
+{
+    "translation_provider": "google_unofficial",
+    "fallback_provider": "",
+    "source_language": "de",
+    "target_language": "en",
+    "api_key": "",
+    "libretranslate_endpoint": "https://libretranslate.com",
+    "enable_google_unofficial": true,
+    "request_timeout_seconds": 10,
+    "cache_enabled": true,
+    "cache_lifetime_days": 30,
+    "tts_provider": "auto",
+    "speech_language": "de-DE",
+    "preferred_voice": "",
+    "speech_rate": 0.9,
+    "popup_font_size": 14,
+    "debug_logging": false
+}

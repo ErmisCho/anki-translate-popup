@@ -1,0 +1,10 @@
+# Build artefact - regenerate with `python build_ankiaddon.py`
+*.ankiaddon
+
+# Runtime data: translation cache, synthesised audio, and the user's saved
+# config (meta.json holds the API key in plain text).
+anki_translate_popup/user_files/
+anki_translate_popup/meta.json
+
+__pycache__/
+*.py[cod]
