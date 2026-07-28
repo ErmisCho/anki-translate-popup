@@ -1272,6 +1272,8 @@
             return;
         }
         var lang = selectionSpeechLanguage();
+        log("pronounce:", automatic ? "automatic" : "asked", "| pair source",
+            config.sourceLanguage, "| detected", detectedSource || "-", "| speaking", lang);
         if (automatic && !speaksLanguage(lang)) {
             log("not speaking", lang, "automatically");
             return;

@@ -245,7 +245,12 @@ def _translate_with(config: AddonConfig, provider: str, text: str) -> Dict[str, 
     if cache is not None:
         hit = cache.get(provider, config.source_language, config.target_language, text)
         if hit is not None:
-            logger.debug("Cache hit (%s chars) via %s", len(text), provider)
+            # The decided language, not just that something was decided: a
+            # selection read in the wrong voice is unanswerable without it.
+            logger.debug(
+                "Cache hit via %s: %r asked as %s, detected %s",
+                provider, text[:60], config.source_language, hit.source_lang,
+            )
             return {
                 "text": hit.text,
                 "sourceLang": hit.source_lang,
@@ -266,6 +271,10 @@ def _translate_with(config: AddonConfig, provider: str, text: str) -> Dict[str, 
         )
     )
 
+    logger.debug(
+        "Translated via %s: %r asked as %s, detected %s",
+        provider, text[:60], config.source_language, result.source_lang,
+    )
     if cache is not None:
         cache.set(provider, config.source_language, config.target_language, text, result)
 
