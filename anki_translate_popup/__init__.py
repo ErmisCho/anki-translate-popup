@@ -381,7 +381,7 @@ def _synthesize_blocking(text: str, lang: str = "") -> str:
     engine = GoogleTextToSpeech(config.request_timeout_seconds)
     path = _speech_cache_path(engine.name, lang, text)
     if path.is_file() and path.stat().st_size > 0:
-        logger.debug("Speech cache hit (%s chars)", len(text))
+        logger.debug("Speech cache hit in %s: %r", lang, text[:120])
         return str(path)
 
     # The same undocumented endpoint the translation backend uses, so the same
@@ -394,7 +394,9 @@ def _synthesize_blocking(text: str, lang: str = "") -> str:
             "it to true, or install a system voice for this language."
         )
 
-    logger.debug("Synthesising %s chars via %s", len(text), engine.name)
+    # The text and the language, not a count: two paths speaking "the same"
+    # thing differently is only diagnosable if both say what they said.
+    logger.debug("Speaking in %s via %s: %r", lang, engine.name, text[:120])
     audio = engine.synthesize(text, lang)
 
     _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
