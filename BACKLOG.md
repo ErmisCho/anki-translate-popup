@@ -48,6 +48,32 @@ card's own `[sound:]` is never cut off.
 Anki emits the show hook more than once per side (measured: two clips for one
 card), so repeats of the same side within 2s are ignored.
 
+### ✅ 12. Pronounce either side of the card by key
+
+`pronounce_prompt_shortcut` (default `x`) speaks the side you are shown;
+`pronounce_answer_shortcut` (default `c`) speaks the side you are predicting.
+Both take the same spelling as `lookup_shortcut`, and `""` disables either.
+
+Neither key knows which way round the card is, and neither needs to:
+`card.question()` renders whichever side is the prompt for that template and
+`card.answer()` the other, so a reversed card swaps them by itself.
+
+The text is **pushed to the webview as each side appears**, not fetched when a
+key is pressed. That keypress is the transient user activation that lets the
+page use an installed system voice at all — spending it on a bridge round trip
+risks Chromium expiring it first. It is also why these work with
+`tts_provider: system`, which card auto-pronounce cannot.
+
+`answer` is left empty until the answer is actually on screen, so `c` is silent
+rather than spoiling a card you are still recalling. Both speak through the
+same path as the Pronounce button, so a second press interrupts the first
+instead of queueing, and the auto-pronounce dedupe window never sees them.
+
+The defaults are bare letters, so `keydown` ignores anything typed into an
+input, textarea or contenteditable — otherwise a type-in-the-answer card would
+lose every `x` and `c`. Whether they collide with an Anki reviewer key is
+checked in the README's manual pass, not here: it needs a running Anki.
+
 ### ✅ 5. Keyboard shortcut
 
 `lookup_shortcut` (default `Ctrl+Shift+T`, `""` disables) re-opens the popup

@@ -221,6 +221,10 @@ def _synthesize_blocking(text: str) -> str:
     if config_error:
         raise ConfigurationError(config_error)
 
+    # Expand before the cache key is built, so "Akk." and "Akkusativ" share one
+    # clip and the cached audio always matches what was actually spoken.
+    text = prepare_speech_text(text, config)
+
     engine = GoogleTextToSpeech(config.request_timeout_seconds)
     path = _speech_cache_path(engine.name, config.speech_language, text)
     if path.is_file() and path.stat().st_size > 0:
@@ -252,6 +256,7 @@ _TOGGLEABLE_OPTIONS = (
     "auto_pronounce",
     "auto_pronounce_card",
     "auto_pronounce_answer",
+    "expand_abbreviations",
     "show_examples",
 )
 
@@ -270,6 +275,38 @@ _BLOCK_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 _TAG_RE = re.compile(r"<[^>]+>")
+
+
+#: Grammatical abbreviations that appear constantly on German vocabulary cards.
+#: A speech engine reads "Akk." as a letter salad, so expand it to the word.
+#: Nominativ is included because a deck using the other three always uses it too.
+GERMAN_ABBREVIATIONS = {
+    "akk": "Akkusativ",
+    "dat": "Dativ",
+    "gen": "Genitiv",
+    "nom": "Nominativ",
+}
+#: Word-bounded, so "Akku" (battery) and an already-spelled-out "Genitiv" are
+#: both left alone. The trailing full stop is kept: it is a natural pause.
+_ABBREVIATION_RE = re.compile(
+    r"\b(" + "|".join(sorted(GERMAN_ABBREVIATIONS)) + r")\b", re.IGNORECASE
+)
+
+
+def expand_german_abbreviations(text: str) -> str:
+    """Replace Akk./Dat./Gen./Nom. with the full German words."""
+    return _ABBREVIATION_RE.sub(
+        lambda match: GERMAN_ABBREVIATIONS[match.group(1).lower()], text
+    )
+
+
+def prepare_speech_text(text: str, config: AddonConfig) -> str:
+    """Final pass over text on its way to a speech engine."""
+    # Only for German speech: "Gen" is a word in English, and expanding it
+    # there would be wrong.
+    if config.expand_abbreviations and config.speech_language.lower().startswith("de"):
+        return expand_german_abbreviations(text)
+    return text
 
 
 def card_side_lines(rendered: str, *, is_answer: bool) -> List[str]:
@@ -334,6 +371,45 @@ def _is_duplicate_card_side(card: Any, is_answer: bool, now: float) -> bool:
     return False
 
 
+def _push_card_text(card: Any, config: AddonConfig, *, is_answer: bool) -> None:
+    """Hand the current card's spoken text to the webview.
+
+    Pushed on every card side rather than fetched when a key is pressed: the
+    keypress is the transient user activation that lets the webview use a
+    system voice at all, and spending it on a bridge round trip risks Chromium
+    expiring it before the utterance starts.
+
+    ``answer`` stays empty until the answer is actually on screen, so the
+    shortcut cannot read out the very thing the user is still recalling.
+    """
+    if not (config.pronounce_prompt_shortcut or config.pronounce_answer_shortcut):
+        return
+    web = getattr(getattr(mw, "reviewer", None), "web", None)
+    if web is None:
+        return
+
+    first_line = config.speak_first_line_only
+    try:
+        payload = {
+            "prompt": card_side_text(
+                card.question(), is_answer=False, first_line_only=first_line
+            ),
+            "answer": (
+                card_side_text(card.answer(), is_answer=True, first_line_only=first_line)
+                if is_answer
+                else ""
+            ),
+        }
+    except Exception:  # noqa: BLE001 - never let this break the reviewer
+        logger.exception("Could not read the card text for the pronounce shortcuts")
+        return
+
+    web.eval(
+        "globalThis.ankiTranslatePopup && "
+        f"globalThis.ankiTranslatePopup.onCardText({_js_json(payload)});"
+    )
+
+
 def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     """Speak a card side the moment it appears, with no user interaction.
 
@@ -343,6 +419,9 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     player has no such restriction.
     """
     config, error = _load_config()
+    # Before the auto-pronounce gates: the shortcuts stay usable even when
+    # nothing is spoken automatically, which is most of their point.
+    _push_card_text(card, config, is_answer=is_answer)
     if error or not config.auto_pronounce_card:
         return
     # The answer side is what the user is trying to recall, so speaking it is

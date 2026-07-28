@@ -212,6 +212,31 @@ the question. Also on the gear menu, as *…also the answer*.
 
 **Default:** `false`
 
+### `expand_abbreviations`
+
+Speak German grammatical abbreviations as full words. A speech engine reads
+`Akk.` as three letters; this turns it into *Akkusativ*.
+
+| On the card | Spoken |
+| --- | --- |
+| `Akk.` | Akkusativ |
+| `Dat.` | Dativ |
+| `Gen.` | Genitiv |
+| `Nom.` | Nominativ |
+
+So `warten auf + Akk.` is read as *"warten auf plus Akkusativ"*.
+
+Matching is whole-word, so `Akku` (battery) and an already-written `Genitiv`
+are left alone, and case does not matter. The trailing full stop is kept, which
+gives a natural pause.
+
+Only applied when `speech_language` is German — `Gen` is an ordinary English
+word, and expanding it there would be wrong.
+
+Also on the gear menu, as *Say Akk./Dat./Gen. in full*.
+
+**Default:** `true`
+
 ### `show_examples`
 
 Show real sentences using the selected word, with translations, so you can see
@@ -289,6 +314,27 @@ Choose something Anki does not already use — `Ctrl+Shift+T` is free in the
 reviewer as of 25.09.4.
 
 **Default:** `"Ctrl+Shift+T"`
+
+### `pronounce_prompt_shortcut` / `pronounce_answer_shortcut`
+
+Speak one side of the card you are reviewing, without selecting anything.
+
+| Key | Speaks |
+| --- | --- |
+| `x` | the side you are shown — the front of a normal card |
+| `c` | the side you are predicting — the back of a normal card |
+
+On a reversed card the two swap round by themselves: each key follows the
+card's own prompt and answer, not the note's Front and Back fields.
+
+`c` stays silent until you have revealed the answer, so it cannot read out the
+thing you are still trying to recall. Both accept the same spelling as
+`lookup_shortcut` (`Alt+P`, `F8`, …) and `""` disables either one.
+
+`card_speech_scope` applies here too: on `first-line` these speak only the
+headword.
+
+**Defaults:** `"x"` and `"c"`
 
 ### `picker_languages`
 

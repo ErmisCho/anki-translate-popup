@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from unittest import mock
 
@@ -110,6 +111,90 @@ class FirstLineTest(unittest.TestCase):
             addon.card_side_text("<div><br></div>", is_answer=False, first_line_only=True),
             "",
         )
+
+
+class GermanAbbreviationTest(unittest.TestCase):
+    """Speech engines read "Akk." as letters; expand it to the word."""
+
+    def expand(self, text: str) -> str:
+        return addon.expand_german_abbreviations(text)
+
+    def test_the_four_cases(self):
+        self.assertEqual(self.expand("Akk"), "Akkusativ")
+        self.assertEqual(self.expand("Dat"), "Dativ")
+        self.assertEqual(self.expand("Gen"), "Genitiv")
+        self.assertEqual(self.expand("Nom"), "Nominativ")
+
+    def test_trailing_full_stop_is_kept_as_a_pause(self):
+        self.assertEqual(self.expand("warten auf + Akk."), "warten auf + Akkusativ.")
+
+    def test_case_insensitive(self):
+        self.assertEqual(self.expand("AKK"), "Akkusativ")
+        self.assertEqual(self.expand("dat."), "Dativ.")
+
+    def test_mid_sentence(self):
+        self.assertEqual(
+            self.expand("helfen + Dat., danken + Dat."),
+            "helfen + Dativ., danken + Dativ.",
+        )
+
+    def test_longer_words_starting_with_an_abbreviation_are_untouched(self):
+        """"Akku" is a battery, and "Genitiv" is already the full word."""
+        for word in ("Akku", "Akkus", "Genitiv", "Datum", "Nomen", "Datei"):
+            with self.subTest(word=word):
+                self.assertEqual(self.expand(word), word)
+
+    def test_already_expanded_text_is_stable(self):
+        once = self.expand("Akk.")
+        self.assertEqual(self.expand(once), once)
+
+    def test_umlauts_survive(self):
+        self.assertEqual(
+            self.expand("gegenüber + Dat. für Grüße"), "gegenüber + Dativ. für Grüße"
+        )
+
+    def test_text_without_abbreviations_is_unchanged(self):
+        self.assertEqual(self.expand("der Gesichtspunkt, -e"), "der Gesichtspunkt, -e")
+
+
+class PrepareSpeechTextTest(unittest.TestCase):
+    def config(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        from anki_translate_popup.config import parse_config
+
+        return parse_config(raw)
+
+    def test_expands_for_german_speech(self):
+        self.assertEqual(
+            addon.prepare_speech_text("mit + Dat.", self.config(speech_language="de-DE")),
+            "mit + Dativ.",
+        )
+
+    def test_disabled_leaves_text_alone(self):
+        self.assertEqual(
+            addon.prepare_speech_text(
+                "mit + Dat.", self.config(expand_abbreviations=False)
+            ),
+            "mit + Dat.",
+        )
+
+    def test_not_applied_to_other_languages(self):
+        """"Gen" is an English word; expanding it there would be wrong."""
+        self.assertEqual(
+            addon.prepare_speech_text(
+                "the gen on that", self.config(speech_language="en-US")
+            ),
+            "the gen on that",
+        )
+
+    def test_any_german_locale_counts(self):
+        for locale in ("de", "de-DE", "de-AT", "de-CH"):
+            with self.subTest(locale=locale):
+                self.assertEqual(
+                    addon.prepare_speech_text("+ Gen.", self.config(speech_language=locale)),
+                    "+ Genitiv.",
+                )
 
 
 class FakeCard:
@@ -259,7 +344,8 @@ class AutoPronounceGatingTest(unittest.TestCase):
             with mock.patch.object(addon.logger, "exception") as logged:
                 addon.on_reviewer_did_show_question(ExplodingCard())  # must not raise
         self.assertEqual(self.scheduled, [])
-        logged.assert_called_once()
+        # At least once: more than one speech path may report the same bad card.
+        logged.assert_called()
 
 
 class SetOptionTest(unittest.TestCase):
@@ -303,6 +389,72 @@ class SetOptionTest(unittest.TestCase):
     def test_value_is_coerced_to_bool(self):
         addon._set_option('{"key": "show_examples", "value": 1}')
         self.assertIs(self.written["show_examples"], True)
+
+
+class PushCardTextTest(unittest.TestCase):
+    """What the pronounce shortcuts are given to say."""
+
+    def setUp(self) -> None:
+        self.mw = mock.MagicMock()
+        for target, value in (("mw", self.mw), ("QueryOp", mock.MagicMock())):
+            patcher = mock.patch.object(addon, target, value, create=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        addon._last_auto_spoken = None
+        self.addCleanup(setattr, addon, "_last_auto_spoken", None)
+
+    def configure(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return mock.patch.object(addon, "_raw_config", return_value=raw)
+
+    def pushed(self):
+        """The payload from the last onCardText call, or None if there was none."""
+        for call in reversed(self.mw.reviewer.web.eval.call_args_list):
+            script = call.args[0]
+            if "onCardText(" in script:
+                body = script.split("onCardText(", 1)[1].rsplit(");", 1)[0]
+                return json.loads(body)
+        return None
+
+    def test_question_side_sends_the_prompt_only(self):
+        """The answer must not reach the page while it is still hidden."""
+        with self.configure():
+            addon.on_reviewer_did_show_question(FakeCard())
+        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": ""})
+
+    def test_answer_side_sends_both(self):
+        with self.configure():
+            addon.on_reviewer_did_show_answer(FakeCard())
+        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": "the house"})
+
+    def test_sent_even_when_auto_pronounce_is_off(self):
+        """The shortcuts are most of the point when nothing speaks by itself."""
+        with self.configure(auto_pronounce_card=False):
+            addon.on_reviewer_did_show_question(FakeCard())
+        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": ""})
+
+    def test_sent_for_a_system_voice(self):
+        """A keypress is the user gesture that auto-pronounce never has."""
+        with self.configure(tts_provider="system"):
+            addon.on_reviewer_did_show_answer(FakeCard())
+        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": "the house"})
+
+    def test_disabling_both_shortcuts_skips_the_render(self):
+        with self.configure(pronounce_prompt_shortcut="", pronounce_answer_shortcut=""):
+            addon.on_reviewer_did_show_answer(FakeCard())
+        self.assertIsNone(self.pushed())
+
+    def test_scope_full_sends_every_line(self):
+        card = FakeCard(question="<div>Das Haus</div><div>ist groß</div>")
+        with self.configure(card_speech_scope="full"):
+            addon.on_reviewer_did_show_question(card)
+        self.assertEqual(self.pushed()["prompt"], "Das Haus ist groß")
+
+    def test_no_reviewer_webview_is_survivable(self):
+        self.mw.reviewer = None
+        with self.configure():
+            addon.on_reviewer_did_show_question(FakeCard())  # must not raise
 
 
 if __name__ == "__main__":

@@ -29,8 +29,12 @@
         autoTranslate: true,
         autoPronounce: true,
         autoPronounceCard: true,
+        autoPronounceAnswer: false,
+        expandAbbreviations: true,
         showExamples: true,
         lookupShortcut: "Ctrl+Shift+T",
+        pronouncePromptShortcut: "x",
+        pronounceAnswerShortcut: "c",
         pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     };
 
@@ -54,6 +58,9 @@
     var onlineSpeechActive = false;
     var activeUtterance = null;
     var copyResetTimer = null;
+    // Spoken text for the card on screen, pushed by Python as each side
+    // appears. `answer` is empty until the answer is actually shown.
+    var cardText = { prompt: "", answer: "" };
 
     function log() {
         if (!config.debug) {
@@ -248,6 +255,9 @@
     // -- state helpers --------------------------------------------------------
 
     function setStatus(message, kind) {
+        if (!el.status) {
+            return; // spoken from a shortcut with no popup open: nowhere to report
+        }
         if (!message) {
             el.status.hidden = true;
             el.status.textContent = "";
@@ -395,6 +405,7 @@
         { key: "auto_pronounce", field: "autoPronounce", label: "Auto-pronounce selection" },
         { key: "auto_pronounce_card", field: "autoPronounceCard", label: "Auto-pronounce card" },
         { key: "auto_pronounce_answer", field: "autoPronounceAnswer", label: "…also the answer" },
+        { key: "expand_abbreviations", field: "expandAbbreviations", label: "Say Akk./Dat./Gen. in full" },
         { key: "show_examples", field: "showExamples", label: "Show examples" },
     ];
 
@@ -699,6 +710,8 @@
     function onConfigChanged(next) {
         config = Object.assign({}, DEFAULTS, next || {});
         shortcut = parseShortcut(config.lookupShortcut);
+        promptShortcut = parseShortcut(config.pronouncePromptShortcut);
+        answerShortcut = parseShortcut(config.pronounceAnswerShortcut);
         if (popup) {
             applyFontSize();
             if (isOpen() && !lastTranslation) {
@@ -706,6 +719,15 @@
             }
         }
         log("config updated", config);
+    }
+
+    /** Called from Python each time a card side is shown. */
+    function onCardText(next) {
+        cardText = {
+            prompt: (next && next.prompt) || "",
+            answer: (next && next.answer) || "",
+        };
+        log("card text", cardText);
     }
 
     // -- pronunciation --------------------------------------------------------
@@ -813,8 +835,39 @@
         return null;
     }
 
+    /*
+     * German vocabulary cards are full of "Akk.", "Dat.", "Gen." - a speech
+     * engine reads those as letters, so expand them to the words. Mirrors
+     * expand_german_abbreviations() in __init__.py, which handles the online
+     * voice path; this one covers the system voice.
+     *
+     * Word-bounded, so "Akku" (battery) and an already-written "Genitiv" are
+     * both left alone.
+     */
+    var GERMAN_ABBREVIATIONS = {
+        akk: "Akkusativ",
+        dat: "Dativ",
+        gen: "Genitiv",
+        nom: "Nominativ",
+    };
+    var ABBREVIATION_RE = /\b(akk|dat|gen|nom)\b/gi;
+
+    function prepareSpeechText(text) {
+        // Only for German: "Gen" is an English word, and expanding it there
+        // would be wrong.
+        if (!config.expandAbbreviations) {
+            return text;
+        }
+        if (String(config.speechLanguage || "").toLowerCase().indexOf("de") !== 0) {
+            return text;
+        }
+        return text.replace(ABBREVIATION_RE, function (match) {
+            return GERMAN_ABBREVIATIONS[match.toLowerCase()];
+        });
+    }
+
     /** Ask Python to synthesise and play the audio. */
-    function speakOnline() {
+    function speakOnline(text) {
         if (typeof pycmd !== "function") {
             setStatus("Anki's JavaScript bridge is unavailable. Restart Anki.", "error");
             return;
@@ -823,9 +876,7 @@
         pendingSpeechId = requestCounter;
         onlineSpeechActive = true;
         setStatus("Fetching audio…", "loading");
-        pycmd(
-            BRIDGE + "speak:" + JSON.stringify({ id: pendingSpeechId, text: selectedText })
-        );
+        pycmd(BRIDGE + "speak:" + JSON.stringify({ id: pendingSpeechId, text: text }));
     }
 
     /** Called from Python via web.eval once audio starts or fails. */
@@ -843,7 +894,16 @@
     }
 
     function pronounce() {
-        if (!selectedText) {
+        speakText(selectedText);
+    }
+
+    /**
+     * Speak arbitrary text: the selection from the popup, or a card side from
+     * the pronounce shortcuts. Both go through here so a card side gets the
+     * same voice, rate and online fallback the Pronounce button already has.
+     */
+    function speakText(text) {
+        if (!text) {
             return;
         }
 
@@ -851,14 +911,14 @@
 
         var mode = config.ttsProvider || "auto";
         if (mode === "google_unofficial") {
-            speakOnline();
+            speakOnline(text);
             return;
         }
 
         var synth = globalThis.speechSynthesis;
         if (!synth || typeof globalThis.SpeechSynthesisUtterance !== "function") {
             if (mode === "auto") {
-                speakOnline();
+                speakOnline(text);
                 return;
             }
             setStatus(
@@ -878,15 +938,18 @@
                 // no usable voice (Narrator-only "natural voices" do this), so
                 // "auto" quietly goes online rather than dead-ending.
                 if (mode === "auto") {
-                    speakOnline();
+                    speakOnline(text);
                     return;
                 }
                 setStatus(voiceMissingMessage(voices), "error");
+                log("no voice for", config.speechLanguage);
                 return;
             }
 
-            // Always the original selection, never the translation.
-            var utterance = new globalThis.SpeechSynthesisUtterance(selectedText);
+            // Always the original text, never the translation.
+            var utterance = new globalThis.SpeechSynthesisUtterance(
+                prepareSpeechText(text)
+            );
             utterance.voice = voice;
             utterance.lang = voice.lang || config.speechLanguage;
             var rate = Number(config.speechRate);
@@ -1144,18 +1207,44 @@
     }
 
     var shortcut = parseShortcut(config.lookupShortcut);
+    var promptShortcut = parseShortcut(config.pronouncePromptShortcut);
+    var answerShortcut = parseShortcut(config.pronounceAnswerShortcut);
 
-    function matchesShortcut(event) {
-        if (!shortcut) {
+    function matchesShortcut(event, combo) {
+        if (!combo) {
             return false;
         }
         return (
-            event.ctrlKey === shortcut.ctrl &&
-            event.altKey === shortcut.alt &&
-            event.shiftKey === shortcut.shift &&
-            event.metaKey === shortcut.meta &&
-            String(event.key || "").toLowerCase() === shortcut.key
+            event.ctrlKey === combo.ctrl &&
+            event.altKey === combo.alt &&
+            event.shiftKey === combo.shift &&
+            event.metaKey === combo.meta &&
+            String(event.key || "").toLowerCase() === combo.key
         );
+    }
+
+    /**
+     * The defaults are bare letters, so a type-in-the-answer card would lose
+     * every "x" and "c" the user tries to type. Never claim a key from a field.
+     */
+    function isEditableTarget(node) {
+        if (!node || node.nodeType !== 1) {
+            return false;
+        }
+        var tag = String(node.tagName || "").toLowerCase();
+        return tag === "input" || tag === "textarea" || !!node.isContentEditable;
+    }
+
+    /** Speak one side of the card on screen, if Python has sent it yet. */
+    function speakCardSide(side) {
+        var text = side === "answer" ? cardText.answer : cardText.prompt;
+        if (!text) {
+            // Silent on purpose: with the answer still hidden there is nothing
+            // to say, and saying it would give away what is being recalled.
+            log("no card text for the", side, "side");
+            return;
+        }
+        speakText(text);
     }
 
     function handleKeyDown(event) {
@@ -1174,9 +1263,22 @@
             }
             return;
         }
-        // Everything else falls through untouched unless it is exactly the
-        // configured shortcut - Anki's reviewer keys must keep working.
-        if (matchesShortcut(event)) {
+        if (isEditableTarget(event.target)) {
+            return;
+        }
+        // Everything else falls through untouched unless it is exactly one of
+        // the configured shortcuts - Anki's reviewer keys must keep working.
+        if (matchesShortcut(event, promptShortcut)) {
+            event.preventDefault();
+            speakCardSide("prompt");
+            return;
+        }
+        if (matchesShortcut(event, answerShortcut)) {
+            event.preventDefault();
+            speakCardSide("answer");
+            return;
+        }
+        if (matchesShortcut(event, shortcut)) {
             event.preventDefault();
             lookupSelection();
         }
@@ -1198,9 +1300,11 @@
         onSpeechResponse: onSpeechResponse,
         onCopyResponse: onCopyResponse,
         onConfigChanged: onConfigChanged,
+        onCardText: onCardText,
         hide: hide,
         // Exposed for manual poking from Anki's debug console.
         _pickVoice: pickVoice,
+        _prepareSpeechText: prepareSpeechText,
     };
 
     log("initialised", config);

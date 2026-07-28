@@ -47,12 +47,15 @@ DEFAULTS: Dict[str, Any] = {
     "tts_cache_max_mb": 100,
     "enable_in_previewer": True,
     "lookup_shortcut": "Ctrl+Shift+T",
+    "pronounce_prompt_shortcut": "x",
+    "pronounce_answer_shortcut": "c",
     "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": True,
     "auto_pronounce": True,
     "auto_pronounce_card": True,
     "auto_pronounce_answer": False,
     "card_speech_scope": "first-line",
+    "expand_abbreviations": True,
     "show_examples": True,
     "tts_provider": "auto",
     "speech_language": "de-DE",
@@ -79,17 +82,16 @@ class AddonConfig:
     tts_cache_max_mb: int
     enable_in_previewer: bool
     lookup_shortcut: str
+    pronounce_prompt_shortcut: str
+    pronounce_answer_shortcut: str
     picker_languages: Tuple[str, ...]
     auto_translate: bool
     auto_pronounce: bool
     auto_pronounce_card: bool
     auto_pronounce_answer: bool
     card_speech_scope: str
+    expand_abbreviations: bool
     show_examples: bool
-
-    @property
-    def speak_first_line_only(self) -> bool:
-        return self.card_speech_scope == "first-line"
     tts_provider: str
     speech_language: str
     preferred_voice: str
@@ -100,6 +102,10 @@ class AddonConfig:
     @property
     def cache_lifetime_seconds(self) -> int:
         return self.cache_lifetime_days * 86400
+
+    @property
+    def speak_first_line_only(self) -> bool:
+        return self.card_speech_scope == "first-line"
 
     def for_webview(self) -> Dict[str, Any]:
         """The subset the JavaScript layer needs.
@@ -115,7 +121,10 @@ class AddonConfig:
             "autoPronounceCard": self.auto_pronounce_card,
             "autoPronounceAnswer": self.auto_pronounce_answer,
             "showExamples": self.show_examples,
+            "expandAbbreviations": self.expand_abbreviations,
             "lookupShortcut": self.lookup_shortcut,
+            "pronouncePromptShortcut": self.pronounce_prompt_shortcut,
+            "pronounceAnswerShortcut": self.pronounce_answer_shortcut,
             "pickerLanguages": list(self.picker_languages),
             "ttsProvider": self.tts_provider,
             "speechLanguage": self.speech_language,
@@ -323,12 +332,15 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         ),
         enable_in_previewer=_require_bool(raw, "enable_in_previewer", errors),
         lookup_shortcut=_require_str(raw, "lookup_shortcut", errors),
+        pronounce_prompt_shortcut=_require_str(raw, "pronounce_prompt_shortcut", errors),
+        pronounce_answer_shortcut=_require_str(raw, "pronounce_answer_shortcut", errors),
         picker_languages=_require_language_list(raw, "picker_languages", errors),
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
         auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),
         auto_pronounce_answer=_require_bool(raw, "auto_pronounce_answer", errors),
         card_speech_scope=card_speech_scope,
+        expand_abbreviations=_require_bool(raw, "expand_abbreviations", errors),
         show_examples=_require_bool(raw, "show_examples", errors),
         tts_provider=tts_provider,
         speech_language=speech_language,

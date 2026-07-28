@@ -370,6 +370,14 @@ Set up a deck with German cards, then work through these.
 - [ ] Press Ctrl+Shift+T with nothing selected → nothing happens
 - [ ] Preview a card from the browser → popup works there too
 - [ ] Set `enable_in_previewer: false` → popup no longer appears in the previewer, still works in the reviewer
+- [ ] On a question, press **`x`** → the front is spoken, with nothing selected
+- [ ] On the same question, press **`c`** → silence; the answer is not out yet
+- [ ] Show the answer, press **`c`** → the back is spoken, without repeating the front
+- [ ] Press **`x`** then **`c`** quickly → the second interrupts the first, they do not queue
+- [ ] Press **`c`** twice → it speaks twice; the auto-pronounce dedupe does not swallow it
+- [ ] Review a reversed card → `x` still speaks the prompt, `c` still speaks what you were recalling
+- [ ] On a type-in-the-answer card, type a word containing **x** and **c** → both letters land in the field and nothing is spoken
+- [ ] Set `pronounce_answer_shortcut: ""` → `c` does nothing, `x` still works
 
 ### No interference with Anki
 
