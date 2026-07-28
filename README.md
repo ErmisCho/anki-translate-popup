@@ -486,6 +486,8 @@ Set up a deck with German cards, then work through these.
 - [ ] Edit a card, or open **More**, and come back → not spoken again, however long you took
 - [ ] Answer the card and press **Again** → the question *is* spoken again: that is a real second showing
 - [ ] Under an `auto` pair, let the card auto-pronounce, then press **x** → the same language, not the `speech_language` fallback
+- [ ] A card whose first line is a bare headword (`der Aspekt, -e`) with `card_speech_scope: first-line` → identified from the whole side, spoken as German
+- [ ] Press **x** on that card → the same language the card was spoken in, not `speech_language`
 - [ ] `source_language: "auto"` on an English deck → the card is spoken in English, not the `speech_language` German
 - [ ] A card reading `die Aktie, -n` under an `auto` pair → spoken as German, not as English
 - [ ] A card with a German line then an English line, `card_speech_scope: full` → each line in its own voice

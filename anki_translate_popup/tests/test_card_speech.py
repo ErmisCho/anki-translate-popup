@@ -467,6 +467,52 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class DetectionContextTest(unittest.TestCase):
+    """A headword is identified by the card it sits on, not by itself."""
+
+    HEADWORD = "der Aspekt, -e"
+    REST = "Beispiel Er betrachtete jeden Aspekt der Frage."
+
+    def test_first_line_scope_still_identifies_by_the_whole_side(self):
+        """The trim happens before speech, and must not happen before detection."""
+        config = parse_config(dict(DEFAULTS, source_language="auto"))
+        asked = []
+
+        def detect(_config, text):
+            asked.append(text)
+            return "de"
+
+        with mock.patch.object(addon, "_detect_language", detect):
+            addon._speech_segments(
+                config,
+                [self.HEADWORD],
+                is_answer=False,
+                context=self.HEADWORD + " " + self.REST,
+            )
+        self.assertEqual(asked, [self.HEADWORD + " " + self.REST])
+        self.assertNotIn(self.HEADWORD, asked)
+
+    def test_the_shortcuts_look_it_up_by_the_same_key(self):
+        """Keyed by the spoken excerpt, x and c never found what the card stored."""
+        looked_up = []
+        web = mock.Mock()
+        config = parse_config(dict(DEFAULTS, source_language="auto"))
+
+        def cached(_config, text):
+            looked_up.append(text)
+            return "el"
+
+        card = FakeCard(question=self.HEADWORD + "<br>" + self.REST)
+        with mock.patch.object(addon, "mw", mock.Mock(reviewer=mock.Mock(web=web))),              mock.patch.object(addon, "_cached_detection", cached):
+            addon._push_card_text(card, config, is_answer=False)
+        payload = json.loads(
+            web.eval.call_args[0][0].split("onCardText(", 1)[1].rsplit(");", 1)[0]
+        )
+        self.assertEqual(payload["promptLang"], "el")
+        self.assertTrue(looked_up)
+        self.assertIn(self.REST.split()[0], looked_up[0])
+
+
 class SpeakOnlyLanguageTest(unittest.TestCase):
     """Automatic speech can be held to one language; asking out loud cannot."""
 
@@ -508,7 +554,7 @@ class SpeechSegmentTest(unittest.TestCase):
     def config(self, **overrides):
         return parse_config(dict(DEFAULTS, **overrides))
 
-    def segments(self, lines, detections, **overrides):
+    def segments(self, lines, detections, context="", **overrides):
         """detections maps text -> language, standing in for the provider."""
         config = self.config(**overrides)
         seen = []
@@ -518,7 +564,12 @@ class SpeechSegmentTest(unittest.TestCase):
             return detections.get(text, "")
 
         with mock.patch.object(addon, "_detect_language", detect):
-            return addon._speech_segments(config, lines, is_answer=False), seen
+            return (
+                addon._speech_segments(
+                    config, lines, is_answer=False, context=context or " ".join(lines)
+                ),
+                seen,
+            )
 
     def test_a_named_pair_is_one_clip_and_asks_nothing(self):
         segments, seen = self.segments(

@@ -169,7 +169,7 @@ SpeechSegment = Tuple[str, str]
 
 
 def _speech_segments(
-    config: AddonConfig, lines: List[str], *, is_answer: bool
+    config: AddonConfig, lines: List[str], *, is_answer: bool, context: str = ""
 ) -> List[SpeechSegment]:
     """Split a card side into runs of one language. Runs on a worker thread.
 
@@ -186,9 +186,11 @@ def _speech_segments(
         return [(" ".join(lines), config.speech_language_for(is_answer=is_answer))]
 
     # The side as a whole is the reliable sample, and the fallback for any line
-    # too short to speak for itself.
+    # too short to speak for itself. `context` is that whole side even when only
+    # its first line is spoken: identifying "der Aspekt, -e" by itself is the
+    # very thing this exists to avoid.
     side_language = config.with_configured_region(
-        _detect_language(config, " ".join(lines))
+        _detect_language(config, context or " ".join(lines))
     )
 
     segments: List[SpeechSegment] = []
@@ -582,26 +584,34 @@ def _push_card_text(
 
     first_line = config.speak_first_line_only
 
-    def side_language(text: str, *, answer: bool) -> str:
-        """The same rule the card's own auto-pronounce follows."""
+    def side_language(context: str, *, answer: bool) -> str:
+        """The same rule the card's own auto-pronounce follows.
+
+        Looked up by the whole side, which is the key the card path stores a
+        detection under. Keyed by the spoken excerpt instead, this missed every
+        time the scope was first-line and the shortcuts fell back to
+        speech_language while the card itself spoke the detected language.
+        """
         if not config.speech_language_needs_detection(is_answer=answer):
             return config.speech_language_for(is_answer=answer)
-        return config.with_configured_region(_cached_detection(config, text))
+        return config.with_configured_region(_cached_detection(config, context))
+
+    def side(rendered: str, *, answer: bool) -> Tuple[str, str]:
+        """(what is spoken, what identifies it)."""
+        lines = card_side_lines(rendered, is_answer=answer)
+        spoken = lines[:1] if first_line else lines
+        return " ".join(spoken), " ".join(lines)
 
     try:
-        prompt = card_side_text(
-            card.question(), is_answer=False, first_line_only=first_line
-        )
-        answer_text = (
-            card_side_text(card.answer(), is_answer=True, first_line_only=first_line)
-            if is_answer
-            else ""
+        prompt, prompt_context = side(card.question(), answer=False)
+        answer_text, answer_context = (
+            side(card.answer(), answer=True) if is_answer else ("", "")
         )
         payload: Dict[str, Any] = {
             "prompt": prompt,
-            "promptLang": side_language(prompt, answer=False),
+            "promptLang": side_language(prompt_context, answer=False),
             "answer": answer_text,
-            "answerLang": side_language(answer_text, answer=True),
+            "answerLang": side_language(answer_context, answer=True),
         }
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for the pronounce shortcuts")
@@ -680,6 +690,8 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for auto-pronounce")
         return
+    # Detection is given the side; speech is given the configured scope.
+    context = " ".join(lines)
     if config.speak_first_line_only:
         lines = lines[:1]
 
@@ -694,7 +706,7 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     needs_detection = config.speech_language_needs_detection(is_answer=is_answer)
 
     def op(_col: Any) -> List[str]:
-        segments = _speech_segments(config, lines, is_answer=is_answer)
+        segments = _speech_segments(config, lines, is_answer=is_answer, context=context)
         for text, language in segments:
             logger.debug("Card speech: %r -> %s", text[:60], language)
         # Automatic only: pressing a pronounce key is an explicit request and
