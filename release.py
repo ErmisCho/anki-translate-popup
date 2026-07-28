@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Cut a new release of the add-on.
 
-    & "$env:LOCALAPPDATA\\AnkiProgramFiles\\.venv\\Scripts\\python.exe" release.py 1.1.0
-
-Run it with the same interpreter you run the tests with — it reuses that one
-for the suite and for the build.
+    python release.py            # 1.0.0 -> 1.0.1
+    python release.py 1.1.0      # or say which version
 
 It runs the tests, bumps `human_version`, builds the .ankiaddon, commits, tags,
-pushes, and creates the GitHub release with the package attached.
+pushes, and creates the GitHub release with the package attached. Any
+interpreter with `requests` will do — it reuses itself for the suite and the
+build — and it works from any directory.
 
 AnkiWeb is the one step left by hand: it has no API, so the script finishes by
 printing what to upload where.
@@ -19,6 +19,7 @@ import json
 import re
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -42,6 +43,11 @@ def parse_version(value: str) -> tuple[int, int, int]:
         raise SystemExit(f"version must look like 1.2.3, got {value!r}")
     major, minor, patch = value.split(".")
     return int(major), int(minor), int(patch)
+
+
+def next_patch(version: str) -> str:
+    major, minor, patch = parse_version(version)
+    return f"{major}.{minor}.{patch + 1}"
 
 
 def set_version(path: Path, version: str) -> None:
@@ -72,9 +78,9 @@ def check_history_is_clean(previous_tag: str) -> None:
         )
 
 
-def main(version: str) -> int:
-    tag = f"v{version}"
-    new = parse_version(version)
+def main(requested: str | None) -> int:
+    if find_spec("requests") is None:
+        raise SystemExit(f"{sys.executable} has no requests — the tests need it")
 
     branch = run("git", "rev-parse", "--abbrev-ref", "HEAD", capture=True)
     if branch != BRANCH:
@@ -83,8 +89,11 @@ def main(version: str) -> int:
         raise SystemExit("working tree is dirty — commit or stash first")
 
     current = json.loads(MANIFEST.read_text(encoding="utf-8"))["human_version"]
-    if new <= parse_version(current):
+    version = requested or next_patch(current)
+    tag = f"v{version}"
+    if parse_version(version) <= parse_version(current):
         raise SystemExit(f"{version} is not newer than the released {current}")
+    print(f"releasing {current} -> {version}")
 
     tags = run("git", "tag", "--list", tag, capture=True)
     if tags:
@@ -119,6 +128,8 @@ def self_check() -> int:
 
     assert parse_version("1.2.3") == (1, 2, 3)
     assert parse_version("10.0.11") > parse_version("9.99.99")
+    assert next_patch("1.0.0") == "1.0.1"
+    assert next_patch("1.9.9") == "1.9.10"  # patch counts up, it does not carry
     for bad in ("1.2", "v1.2.3", "1.2.3a", ""):
         try:
             parse_version(bad)
@@ -153,8 +164,9 @@ def self_check() -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) > 2:
         raise SystemExit(__doc__)
-    if sys.argv[1] == "--self-check":
+    argument = sys.argv[1] if len(sys.argv) == 2 else None
+    if argument == "--self-check":
         raise SystemExit(self_check())
-    raise SystemExit(main(sys.argv[1]))
+    raise SystemExit(main(argument))
