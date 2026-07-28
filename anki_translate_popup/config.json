@@ -21,6 +21,8 @@
     "auto_pronounce_card": true,
     "auto_pronounce_answer": false,
     "card_speech_scope": "first-line",
+    "front_speech_language": "auto",
+    "back_speech_language": "auto",
     "expand_abbreviations": true,
     "show_examples": true,
     "tts_provider": "auto",

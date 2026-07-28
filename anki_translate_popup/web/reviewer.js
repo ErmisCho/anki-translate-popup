@@ -35,6 +35,8 @@
         lookupShortcut: "Ctrl+Shift+T",
         pronouncePromptShortcut: "x",
         pronounceAnswerShortcut: "c",
+        frontSpeechLanguage: "auto",
+        backSpeechLanguage: "auto",
         pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     };
 
@@ -60,7 +62,7 @@
     var copyResetTimer = null;
     // Spoken text for the card on screen, pushed by Python as each side
     // appears. `answer` is empty until the answer is actually shown.
-    var cardText = { prompt: "", answer: "" };
+    var cardText = { prompt: "", promptLang: "", answer: "", answerLang: "" };
 
     function log() {
         if (!config.debug) {
@@ -291,6 +293,15 @@
         return String(code == null ? "" : code).toUpperCase();
     }
 
+    /** "en-GB" -> "en". Every "same language?" comparison goes through here. */
+    function baseLanguage(code) {
+        return String(code == null ? "" : code)
+            .trim()
+            .replace("_", "-")
+            .split("-")[0]
+            .toLowerCase();
+    }
+
     /** Enter and Space must do what a click does on the role="button" spans. */
     function onActivate(node, handler) {
         node.addEventListener("click", function (event) {
@@ -409,12 +420,60 @@
         { key: "show_examples", field: "showExamples", label: "Show examples" },
     ];
 
+    /*
+     * The two voice languages. Not toggles: each opens a language list in the
+     * same menu. "Auto" follows the translation pair, which is what a deck
+     * already declares - the front is the source language, the back the target.
+     */
+    var VOICE_ITEMS = [
+        { key: "front_speech_language", field: "frontSpeechLanguage", label: "Front voice" },
+        { key: "back_speech_language", field: "backSpeechLanguage", label: "Back voice" },
+    ];
+
     function toggleSettings() {
         if (pickerTrigger === el.settings) {
             closePicker();
             return;
         }
         openSettings();
+    }
+
+    function voiceLabel(code) {
+        return code === "auto" || !code ? "Auto" : languageLabel(code);
+    }
+
+    /**
+     * Replace the gear menu with the language list for one side. The menu is a
+     * single element, so this is a replacement rather than a nested submenu -
+     * picking a language or pressing Escape returns to the settings list.
+     */
+    function openVoicePicker(voice) {
+        var current = config[voice.field] || "auto";
+        el.menu.textContent = "";
+        el.menu.setAttribute("role", "listbox");
+
+        ["auto"].concat(languageOptions("target")).forEach(function (code) {
+            var item = document.createElement("div");
+            item.className = "atp-menu-item";
+            item.setAttribute("role", "option");
+            item.setAttribute("aria-selected", code === current ? "true" : "false");
+            item.tabIndex = 0;
+            item.textContent = voiceLabel(code);
+            onActivate(item, function () {
+                config[voice.field] = code;
+                if (typeof pycmd === "function") {
+                    pycmd(
+                        BRIDGE + "set_option:" +
+                        JSON.stringify({ key: voice.key, value: code })
+                    );
+                }
+                openSettings(); // back to the list the user came from
+            });
+            el.menu.appendChild(item);
+        });
+
+        el.menu.hidden = false;
+        pickerTrigger = el.settings;
     }
 
     function openSettings() {
@@ -455,6 +514,27 @@
                     );
                 }
                 // Deliberately stays open: flipping two switches is common.
+            });
+            el.menu.appendChild(item);
+        });
+
+        VOICE_ITEMS.forEach(function (voice) {
+            var item = document.createElement("div");
+            item.className = "atp-menu-item atp-menu-voice";
+            item.setAttribute("role", "menuitem");
+            item.tabIndex = 0;
+
+            var label = document.createElement("span");
+            label.className = "atp-toggle-label";
+            label.textContent = voice.label;
+            var value = document.createElement("span");
+            value.className = "atp-voice-value";
+            value.textContent = voiceLabel(config[voice.field]);
+            item.appendChild(label);
+            item.appendChild(value);
+
+            onActivate(item, function () {
+                openVoicePicker(voice);
             });
             el.menu.appendChild(item);
         });
@@ -725,7 +805,9 @@
     function onCardText(next) {
         cardText = {
             prompt: (next && next.prompt) || "",
+            promptLang: (next && next.promptLang) || "",
             answer: (next && next.answer) || "",
+            answerLang: (next && next.answerLang) || "",
         };
         log("card text", cardText);
     }
@@ -852,13 +934,14 @@
     };
     var ABBREVIATION_RE = /\b(akk|dat|gen|nom)\b/gi;
 
-    function prepareSpeechText(text) {
+    function prepareSpeechText(text, lang) {
         // Only for German: "Gen" is an English word, and expanding it there
-        // would be wrong.
+        // would be wrong - which is what an English answer side would get if
+        // this looked at the global speechLanguage instead of its own.
         if (!config.expandAbbreviations) {
             return text;
         }
-        if (String(config.speechLanguage || "").toLowerCase().indexOf("de") !== 0) {
+        if (String(lang || config.speechLanguage || "").toLowerCase().indexOf("de") !== 0) {
             return text;
         }
         return text.replace(ABBREVIATION_RE, function (match) {
@@ -867,7 +950,7 @@
     }
 
     /** Ask Python to synthesise and play the audio. */
-    function speakOnline(text) {
+    function speakOnline(text, lang) {
         if (typeof pycmd !== "function") {
             setStatus("Anki's JavaScript bridge is unavailable. Restart Anki.", "error");
             return;
@@ -876,7 +959,10 @@
         pendingSpeechId = requestCounter;
         onlineSpeechActive = true;
         setStatus("Fetching audio…", "loading");
-        pycmd(BRIDGE + "speak:" + JSON.stringify({ id: pendingSpeechId, text: text }));
+        pycmd(
+            BRIDGE + "speak:" +
+            JSON.stringify({ id: pendingSpeechId, text: text, lang: lang || "" })
+        );
     }
 
     /** Called from Python via web.eval once audio starts or fails. */
@@ -894,31 +980,33 @@
     }
 
     function pronounce() {
-        speakText(selectedText);
+        speakText(selectedText, config.speechLanguage);
     }
 
     /**
-     * Speak arbitrary text: the selection from the popup, or a card side from
-     * the pronounce shortcuts. Both go through here so a card side gets the
-     * same voice, rate and online fallback the Pronounce button already has.
+     * Speak arbitrary text in a given language: the selection from the popup,
+     * or a card side from the pronounce shortcuts. Both go through here so a
+     * card side gets the same voice, rate and online fallback the Pronounce
+     * button already has - only the language differs.
      */
-    function speakText(text) {
+    function speakText(text, lang) {
         if (!text) {
             return;
         }
+        lang = lang || config.speechLanguage;
 
         stopSpeech(); // requirement: never overlap two pronunciations
 
         var mode = config.ttsProvider || "auto";
         if (mode === "google_unofficial") {
-            speakOnline(text);
+            speakOnline(text, lang);
             return;
         }
 
         var synth = globalThis.speechSynthesis;
         if (!synth || typeof globalThis.SpeechSynthesisUtterance !== "function") {
             if (mode === "auto") {
-                speakOnline(text);
+                speakOnline(text, lang);
                 return;
             }
             setStatus(
@@ -932,26 +1020,32 @@
         setStatus("Preparing speech…", "loading");
 
         loadVoices(6000).then(function (voices) {
-            var voice = pickVoice(voices, config.speechLanguage, config.preferredVoice);
+            // preferredVoice names one specific voice, so it only applies to
+            // the language it was chosen for - never to the other card side.
+            var preferred =
+                baseLanguage(lang) === baseLanguage(config.speechLanguage)
+                    ? config.preferredVoice
+                    : "";
+            var voice = pickVoice(voices, lang, preferred);
             if (!voice) {
                 // Windows may report the language as installed while exposing
                 // no usable voice (Narrator-only "natural voices" do this), so
                 // "auto" quietly goes online rather than dead-ending.
                 if (mode === "auto") {
-                    speakOnline(text);
+                    speakOnline(text, lang);
                     return;
                 }
-                setStatus(voiceMissingMessage(voices), "error");
-                log("no voice for", config.speechLanguage);
+                setStatus(voiceMissingMessage(voices, lang), "error");
+                log("no voice for", lang);
                 return;
             }
 
             // Always the original text, never the translation.
             var utterance = new globalThis.SpeechSynthesisUtterance(
-                prepareSpeechText(text)
+                prepareSpeechText(text, lang)
             );
             utterance.voice = voice;
-            utterance.lang = voice.lang || config.speechLanguage;
+            utterance.lang = voice.lang || lang;
             var rate = Number(config.speechRate);
             utterance.rate = isFinite(rate) && rate > 0 ? rate : DEFAULTS.speechRate;
 
@@ -988,7 +1082,7 @@
         "the language > Language options > Speech. Adding the language alone " +
         "does not install a voice. Restart Anki afterwards.";
 
-    function voiceMissingMessage(voices) {
+    function voiceMissingMessage(voices, lang) {
         if (!voices || !voices.length) {
             return "No speech voices are available at all. Install one: " + INSTALL_HINT;
         }
@@ -1003,7 +1097,7 @@
             .join(", ");
         return (
             'No "' +
-            config.speechLanguage +
+            (lang || config.speechLanguage) +
             '" voice is installed (available: ' +
             available +
             "). Install it via " +
@@ -1237,14 +1331,15 @@
 
     /** Speak one side of the card on screen, if Python has sent it yet. */
     function speakCardSide(side) {
-        var text = side === "answer" ? cardText.answer : cardText.prompt;
+        var answer = side === "answer";
+        var text = answer ? cardText.answer : cardText.prompt;
         if (!text) {
             // Silent on purpose: with the answer still hidden there is nothing
             // to say, and saying it would give away what is being recalled.
             log("no card text for the", side, "side");
             return;
         }
-        speakText(text);
+        speakText(text, answer ? cardText.answerLang : cardText.promptLang);
     }
 
     function handleKeyDown(event) {

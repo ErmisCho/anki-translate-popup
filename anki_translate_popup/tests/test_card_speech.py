@@ -7,7 +7,8 @@ import unittest
 from unittest import mock
 
 import anki_translate_popup as addon
-from anki_translate_popup.config import DEFAULTS
+from anki_translate_popup.config import DEFAULTS, parse_config
+from anki_translate_popup.translation.base import ConfigurationError
 from anki_translate_popup.tts import MAX_SPEECH_CHARS
 
 
@@ -317,7 +318,8 @@ class AutoPronounceGatingTest(unittest.TestCase):
             with mock.patch.object(addon, "_synthesize_blocking") as synth:
                 addon.on_reviewer_did_show_answer(FakeCard())
                 self.scheduled[0]._op(None)
-        synth.assert_called_once_with("the house")
+        # "en", not the German speech_language: the answer is the target side.
+        synth.assert_called_once_with("the house", "en")
 
     def test_question_speaks_only_its_first_line_by_default(self):
         card = FakeCard(question="<div>der Gesichtspunkt, -e</div><div>Example</div>")
@@ -325,7 +327,7 @@ class AutoPronounceGatingTest(unittest.TestCase):
             with mock.patch.object(addon, "_synthesize_blocking") as synth:
                 addon.on_reviewer_did_show_question(card)
                 self.scheduled[0]._op(None)
-        synth.assert_called_once_with("der Gesichtspunkt, -e")
+        synth.assert_called_once_with("der Gesichtspunkt, -e", "de-DE")
 
     def test_full_scope_speaks_the_whole_side(self):
         card = FakeCard(question="<div>der Gesichtspunkt, -e</div><div>Example</div>")
@@ -333,7 +335,7 @@ class AutoPronounceGatingTest(unittest.TestCase):
             with mock.patch.object(addon, "_synthesize_blocking") as synth:
                 addon.on_reviewer_did_show_question(card)
                 self.scheduled[0]._op(None)
-        synth.assert_called_once_with("der Gesichtspunkt, -e Example")
+        synth.assert_called_once_with("der Gesichtspunkt, -e Example", "de-DE")
 
     def test_a_broken_card_never_raises_into_the_reviewer(self):
         class ExplodingCard:
@@ -391,6 +393,61 @@ class SetOptionTest(unittest.TestCase):
         self.assertIs(self.written["show_examples"], True)
 
 
+class SpeechLanguagePerSideTest(unittest.TestCase):
+    """A deck has a language per side, not one language for both."""
+
+    def config(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return parse_config(raw)
+
+    def test_auto_follows_the_translation_pair(self):
+        config = self.config(source_language="de", target_language="en")
+        self.assertEqual(config.speech_language_for(is_answer=False), "de-DE")
+        self.assertEqual(config.speech_language_for(is_answer=True), "en")
+
+    def test_auto_swaps_when_the_pair_swaps(self):
+        config = self.config(source_language="en", target_language="de")
+        self.assertEqual(config.speech_language_for(is_answer=False), "en")
+        self.assertEqual(config.speech_language_for(is_answer=True), "de-DE")
+
+    def test_region_is_kept_for_the_same_language(self):
+        """A user who asked for de-AT wants de-AT, not the pair's bare 'de'."""
+        config = self.config(speech_language="de-AT", source_language="de")
+        self.assertEqual(config.speech_language_for(is_answer=False), "de-AT")
+
+    def test_explicit_setting_wins_over_the_pair(self):
+        config = self.config(front_speech_language="fr", back_speech_language="el")
+        self.assertEqual(config.speech_language_for(is_answer=False), "fr")
+        self.assertEqual(config.speech_language_for(is_answer=True), "el")
+
+    def test_auto_source_falls_back_to_speech_language(self):
+        """'auto' as a source names no language, so there is nothing to follow."""
+        config = self.config(source_language="auto", speech_language="de-DE")
+        self.assertEqual(config.speech_language_for(is_answer=False), "de-DE")
+
+    def test_one_side_can_be_pinned_while_the_other_follows(self):
+        config = self.config(back_speech_language="en-GB", target_language="en")
+        self.assertEqual(config.speech_language_for(is_answer=False), "de-DE")
+        self.assertEqual(config.speech_language_for(is_answer=True), "en-GB")
+
+    def test_a_bad_code_is_rejected(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            self.config(front_speech_language="not a language")
+        self.assertIn("front_speech_language", str(ctx.exception))
+
+    def test_abbreviations_expand_only_for_the_german_side(self):
+        """The English back must not have "gen" turned into "Genitiv"."""
+        config = self.config()
+        self.assertEqual(
+            addon.prepare_speech_text("+ Gen.", config, "de-DE"), "+ Genitiv."
+        )
+        self.assertEqual(
+            addon.prepare_speech_text("the gen on that", config, "en"),
+            "the gen on that",
+        )
+
+
 class PushCardTextTest(unittest.TestCase):
     """What the pronounce shortcuts are given to say."""
 
@@ -421,24 +478,53 @@ class PushCardTextTest(unittest.TestCase):
         """The answer must not reach the page while it is still hidden."""
         with self.configure():
             addon.on_reviewer_did_show_question(FakeCard())
-        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": ""})
+        self.assertEqual(
+            self.pushed(),
+            {
+                "prompt": "Das Haus",
+                "promptLang": "de-DE",
+                "answer": "",
+                "answerLang": "en",
+            },
+        )
 
     def test_answer_side_sends_both(self):
         with self.configure():
             addon.on_reviewer_did_show_answer(FakeCard())
-        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": "the house"})
+        self.assertEqual(
+            self.pushed(),
+            {
+                "prompt": "Das Haus",
+                "promptLang": "de-DE",
+                "answer": "the house",
+                "answerLang": "en",
+            },
+        )
+
+    def test_each_side_carries_its_own_language(self):
+        """A German voice reading the English back was the bug this fixes."""
+        with self.configure(source_language="de", target_language="en"):
+            addon.on_reviewer_did_show_answer(FakeCard())
+        pushed = self.pushed()
+        self.assertEqual(pushed["promptLang"], "de-DE")
+        self.assertEqual(pushed["answerLang"], "en")
+
+    def test_a_pinned_side_overrides_the_pair(self):
+        with self.configure(back_speech_language="fr"):
+            addon.on_reviewer_did_show_answer(FakeCard())
+        self.assertEqual(self.pushed()["answerLang"], "fr")
 
     def test_sent_even_when_auto_pronounce_is_off(self):
         """The shortcuts are most of the point when nothing speaks by itself."""
         with self.configure(auto_pronounce_card=False):
             addon.on_reviewer_did_show_question(FakeCard())
-        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": ""})
+        self.assertEqual(self.pushed()["prompt"], "Das Haus")
 
     def test_sent_for_a_system_voice(self):
         """A keypress is the user gesture that auto-pronounce never has."""
         with self.configure(tts_provider="system"):
             addon.on_reviewer_did_show_answer(FakeCard())
-        self.assertEqual(self.pushed(), {"prompt": "Das Haus", "answer": "the house"})
+        self.assertEqual(self.pushed()["answer"], "the house")
 
     def test_disabling_both_shortcuts_skips_the_render(self):
         with self.configure(pronounce_prompt_shortcut="", pronounce_answer_shortcut=""):

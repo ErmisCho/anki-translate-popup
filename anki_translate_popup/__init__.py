@@ -215,24 +215,30 @@ def _speech_cache_path(provider: str, lang: str, text: str) -> Path:
     return _TTS_CACHE_DIR / f"{key}.mp3"
 
 
-def _synthesize_blocking(text: str) -> str:
-    """Return a path to playable audio. Runs on a worker thread."""
+def _synthesize_blocking(text: str, lang: str = "") -> str:
+    """Return a path to playable audio. Runs on a worker thread.
+
+    ``lang`` overrides ``speech_language`` for callers that know which side of
+    a card they are speaking; the cache key already includes it, so the two
+    languages never share a clip.
+    """
     config, config_error = _load_config()
     if config_error:
         raise ConfigurationError(config_error)
 
+    lang = lang or config.speech_language
     # Expand before the cache key is built, so "Akk." and "Akkusativ" share one
     # clip and the cached audio always matches what was actually spoken.
-    text = prepare_speech_text(text, config)
+    text = prepare_speech_text(text, config, lang)
 
     engine = GoogleTextToSpeech(config.request_timeout_seconds)
-    path = _speech_cache_path(engine.name, config.speech_language, text)
+    path = _speech_cache_path(engine.name, lang, text)
     if path.is_file() and path.stat().st_size > 0:
         logger.debug("Speech cache hit (%s chars)", len(text))
         return str(path)
 
     logger.debug("Synthesising %s chars via %s", len(text), engine.name)
-    audio = engine.synthesize(text, config.speech_language)
+    audio = engine.synthesize(text, lang)
 
     _TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     # Write to a temporary name first so a failed download can never leave a
@@ -258,6 +264,15 @@ _TOGGLEABLE_OPTIONS = (
     "auto_pronounce_answer",
     "expand_abbreviations",
     "show_examples",
+)
+
+#: The gear's non-boolean settings. Separate allowlist rather than a wider
+#: `_TOGGLEABLE_OPTIONS`, so a string can never land in a boolean setting.
+#: The value itself is left to parse_config, which rejects anything that is
+#: not "auto" or a language code.
+_LANGUAGE_OPTIONS = (
+    "front_speech_language",
+    "back_speech_language",
 )
 
 ANSWER_DIVIDER = "<hr id=answer>"
@@ -300,11 +315,17 @@ def expand_german_abbreviations(text: str) -> str:
     )
 
 
-def prepare_speech_text(text: str, config: AddonConfig) -> str:
-    """Final pass over text on its way to a speech engine."""
+def prepare_speech_text(text: str, config: AddonConfig, lang: str = "") -> str:
+    """Final pass over text on its way to a speech engine.
+
+    ``lang`` is the language this particular text will be spoken in, which is
+    not always ``speech_language``: a card's two sides have one each.
+    """
     # Only for German speech: "Gen" is a word in English, and expanding it
-    # there would be wrong.
-    if config.expand_abbreviations and config.speech_language.lower().startswith("de"):
+    # there would be wrong - which is exactly what an English answer side
+    # would get if this looked at speech_language instead.
+    lang = lang or config.speech_language
+    if config.expand_abbreviations and lang.lower().startswith("de"):
         return expand_german_abbreviations(text)
     return text
 
@@ -394,11 +415,13 @@ def _push_card_text(card: Any, config: AddonConfig, *, is_answer: bool) -> None:
             "prompt": card_side_text(
                 card.question(), is_answer=False, first_line_only=first_line
             ),
+            "promptLang": config.speech_language_for(is_answer=False),
             "answer": (
                 card_side_text(card.answer(), is_answer=True, first_line_only=first_line)
                 if is_answer
                 else ""
             ),
+            "answerLang": config.speech_language_for(is_answer=True),
         }
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for the pronounce shortcuts")
@@ -452,8 +475,10 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
         logger.debug("Card side too long to auto-pronounce (%s chars)", len(text))
         return
 
+    lang = config.speech_language_for(is_answer=is_answer)
+
     def op(_col: Any) -> str:
-        return _synthesize_blocking(text)
+        return _synthesize_blocking(text, lang)
 
     def success(path: str) -> None:
         from anki.sound import SoundOrVideoTag
@@ -485,16 +510,25 @@ def on_reviewer_did_show_answer(card: Any) -> None:
 
 
 def _set_option(raw_payload: str) -> None:
-    """Flip one boolean setting from the popup's gear menu."""
+    """Change one setting from the popup's gear menu."""
     try:
         payload = json.loads(raw_payload)
         key = str(payload["key"])
-        value = bool(payload["value"])
+        raw_value = payload["value"]
     except (ValueError, TypeError, KeyError):
         logger.exception("Malformed set_option payload")
         return
 
-    if key not in _TOGGLEABLE_OPTIONS:
+    # The key decides the type, never the payload: a webview that sends a
+    # string for a toggle must not be able to store one.
+    if key in _TOGGLEABLE_OPTIONS:
+        value: Any = bool(raw_value)
+    elif key in _LANGUAGE_OPTIONS:
+        if not isinstance(raw_value, str):
+            logger.warning("Refusing non-text value for %r from the webview", key)
+            return
+        value = raw_value
+    else:
         logger.warning("Refusing to set unknown option %r from the webview", key)
         return
 
@@ -510,7 +544,7 @@ def _set_option(raw_payload: str) -> None:
     logger.debug("Option %s set to %s", key, value)
 
 
-def _start_speech(web: Any, request_id: int, text: str) -> None:
+def _start_speech(web: Any, request_id: int, text: str, lang: str = "") -> None:
     text = text.strip()
     if not text:
         return
@@ -530,7 +564,7 @@ def _start_speech(web: Any, request_id: int, text: str) -> None:
         return
 
     def op(_col: Any) -> str:
-        return _synthesize_blocking(text)
+        return _synthesize_blocking(text, lang)
 
     def success(path: str) -> None:
         # Imported lazily: this module is loaded during Anki's startup, before
@@ -668,6 +702,7 @@ def on_js_message(
         payload = json.loads(raw_payload)
         request_id = int(payload["id"])
         text = str(payload["text"])
+        lang = str(payload.get("lang") or "")
     except (ValueError, TypeError, KeyError):
         logger.exception("Malformed bridge payload from the reviewer")
         return True, None
@@ -675,7 +710,7 @@ def on_js_message(
     if command == "translate":
         _start_translation(web, request_id, text)
     elif command == "speak":
-        _start_speech(web, request_id, text)
+        _start_speech(web, request_id, text, lang)
     else:
         _copy_to_clipboard(web, request_id, text)
     return True, None

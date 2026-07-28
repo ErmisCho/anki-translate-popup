@@ -55,6 +55,8 @@ DEFAULTS: Dict[str, Any] = {
     "auto_pronounce_card": True,
     "auto_pronounce_answer": False,
     "card_speech_scope": "first-line",
+    "front_speech_language": "auto",
+    "back_speech_language": "auto",
     "expand_abbreviations": True,
     "show_examples": True,
     "tts_provider": "auto",
@@ -90,6 +92,8 @@ class AddonConfig:
     auto_pronounce_card: bool
     auto_pronounce_answer: bool
     card_speech_scope: str
+    front_speech_language: str
+    back_speech_language: str
     expand_abbreviations: bool
     show_examples: bool
     tts_provider: str
@@ -107,6 +111,28 @@ class AddonConfig:
     def speak_first_line_only(self) -> bool:
         return self.card_speech_scope == "first-line"
 
+    def speech_language_for(self, *, is_answer: bool) -> str:
+        """Which voice language one side of the card should be read in.
+
+        A deck has a language per side, not one language: the front is the
+        word you are learning, the back its translation. Speaking both with
+        ``speech_language`` gives an English answer a German voice.
+
+        ``auto`` follows the translation pair, which is what the deck already
+        declares. It falls back to ``speech_language`` when the source is
+        itself ``auto``, since there is then no configured language to use.
+        """
+        chosen = self.back_speech_language if is_answer else self.front_speech_language
+        if chosen == "auto":
+            chosen = self.target_language if is_answer else self.source_language
+        if chosen == "auto":
+            return self.speech_language
+        # Keep the region when it is for the same language: a user who asked
+        # for de-AT wants de-AT, not the bare "de" the pair is written in.
+        if _base_language(chosen) == _base_language(self.speech_language):
+            return self.speech_language
+        return chosen
+
     def for_webview(self) -> Dict[str, Any]:
         """The subset the JavaScript layer needs.
 
@@ -122,6 +148,8 @@ class AddonConfig:
             "autoPronounceAnswer": self.auto_pronounce_answer,
             "showExamples": self.show_examples,
             "expandAbbreviations": self.expand_abbreviations,
+            "frontSpeechLanguage": self.front_speech_language,
+            "backSpeechLanguage": self.back_speech_language,
             "lookupShortcut": self.lookup_shortcut,
             "pronouncePromptShortcut": self.pronounce_prompt_shortcut,
             "pronounceAnswerShortcut": self.pronounce_answer_shortcut,
@@ -167,6 +195,11 @@ def _require_number(
         errors.append(f"'{key}' must be between {minimum:g} and {maximum:g}, got {value!r}.")
         return float(DEFAULTS[key])
     return float(value)
+
+
+def _base_language(lang: str) -> str:
+    """``en-GB`` -> ``en``. Shared by every "same language?" comparison."""
+    return lang.strip().replace("_", "-").split("-")[0].lower()
 
 
 def _parse_language_code(value: str, *, allow_auto: bool) -> Optional[str]:
@@ -340,6 +373,18 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),
         auto_pronounce_answer=_require_bool(raw, "auto_pronounce_answer", errors),
         card_speech_scope=card_speech_scope,
+        front_speech_language=_normalise_language(
+            _require_str(raw, "front_speech_language", errors),
+            "front_speech_language",
+            errors,
+            allow_auto=True,
+        ),
+        back_speech_language=_normalise_language(
+            _require_str(raw, "back_speech_language", errors),
+            "back_speech_language",
+            errors,
+            allow_auto=True,
+        ),
         expand_abbreviations=_require_bool(raw, "expand_abbreviations", errors),
         show_examples=_require_bool(raw, "show_examples", errors),
         tts_provider=tts_provider,

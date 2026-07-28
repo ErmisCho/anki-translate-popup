@@ -379,6 +379,12 @@ Set up a deck with German cards, then work through these.
 - [ ] Review a reversed card → `x` still speaks the prompt, `c` still speaks what you were recalling
 - [ ] On a type-in-the-answer card, type a word containing **x** and **c** → both letters land in the field and nothing is spoken
 - [ ] Set `pronounce_answer_shortcut: ""` → `c` does nothing, `x` still works
+- [ ] With a `de → en` pair, press `x` then `c` → German voice for the front, English voice for the back
+- [ ] Swap the pair in the header, then press `x` → the voice swaps with it
+- [ ] Gear → **Back voice** → pick a language → it sticks, and the row shows it
+- [ ] Gear → **Back voice** → **Auto** → follows the pair again
+- [ ] Set `speech_language: de-AT` with a `de → en` pair → the front keeps the Austrian voice
+- [ ] Put `Gen.` on an English back → spoken as "gen", not "Genitiv"
 
 ### No interference with Anki
 

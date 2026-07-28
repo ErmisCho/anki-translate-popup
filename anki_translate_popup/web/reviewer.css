@@ -263,6 +263,24 @@
     color: var(--atp-muted) !important;
 }
 
+/* Voice rows: label left, current value right. Indented past the tick column
+   so the labels line up with the toggles above rather than with their ticks. */
+.atp-popup .atp-menu-voice {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding-left: 26px !important;
+    letter-spacing: normal !important;
+    font-weight: 500 !important;
+}
+
+.atp-popup .atp-voice-value {
+    flex: 0 0 auto !important;
+    color: var(--atp-accent) !important;
+    font-weight: 700 !important;
+}
+
 .atp-popup .atp-actions {
     display: flex !important;
     align-items: center !important;

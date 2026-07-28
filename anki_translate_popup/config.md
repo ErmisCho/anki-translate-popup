@@ -10,9 +10,11 @@ and `auto_pronounce` below to turn that off.
 
 Changes take effect immediately — you do not need to restart Anki.
 
-The four switches you are most likely to change are also on the **gear icon**
-in the popup itself: auto-translate selection, auto-pronounce selection,
-auto-pronounce card, and show examples. Flipping one there writes it here.
+The switches you are most likely to change are also on the **gear icon** in the
+popup itself — auto-translate selection, auto-pronounce selection,
+auto-pronounce card and its answer, abbreviation expansion, show examples —
+along with the **front and back voice languages**. Changing one there writes it
+here.
 
 **Out of the box** this uses the unofficial Google Translate endpoint, so it
 works with no API key and no signup. That endpoint is undocumented and using it
@@ -211,6 +213,39 @@ When on, only the part after the answer divider is spoken, never a repeat of
 the question. Also on the gear menu, as *…also the answer*.
 
 **Default:** `false`
+
+### `front_speech_language` / `back_speech_language`
+
+Which language each side of a card is spoken in. A deck has a language per
+side — the front is the word you are learning, the back its translation — so
+reading both with one voice gives an English answer a German accent.
+
+| Value | Meaning |
+| --- | --- |
+| `auto` | Follow the translation pair: front = `source_language`, back = `target_language`. |
+| a code | Always that language, e.g. `en`, `de-AT`, `el`. |
+
+`auto` is right whenever the deck matches the pair in the popup header, which
+is the normal case — swap the pair and the voices swap with it. Pin a side when
+your deck does not match, for instance a German deck you translate into English
+but whose backs are written in Greek.
+
+Both are on the **gear menu** as *Front voice* and *Back voice*, with **Auto**
+at the top of each list.
+
+Two details:
+
+* **`auto` needs a concrete source.** With `source_language: auto` there is no
+  configured language to follow, so that side falls back to `speech_language`.
+* **Your region survives.** With `speech_language: de-AT` and a pair of
+  `de → en`, the front is spoken in `de-AT`, not the bare `de` the pair is
+  written in. `preferred_voice` works the same way — it names one specific
+  voice, so it only applies to the side whose language it was chosen for.
+
+Which side is "front" follows the card, not the note: on a reversed card the
+prompt is the note's Back field, and the *Front voice* setting applies to it.
+
+**Defaults:** `"auto"` and `"auto"`
 
 ### `expand_abbreviations`
 

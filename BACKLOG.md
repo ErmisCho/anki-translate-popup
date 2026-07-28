@@ -74,6 +74,31 @@ input, textarea or contenteditable — otherwise a type-in-the-answer card would
 lose every `x` and `c`. Whether they collide with an Anki reviewer key is
 checked in the README's manual pass, not here: it needs a running Anki.
 
+### ✅ 13. A voice per card side
+
+Item 12 exposed a bug it did not cause: `speech_language` is one setting, so
+pressing `c` read an English answer with a German voice. A deck has a language
+per side, not one language.
+
+`front_speech_language` and `back_speech_language` (both `auto`) fix it, on the
+gear menu as *Front voice* and *Back voice*. `auto` follows the pair the popup
+header already declares — front = `source_language`, back = `target_language` —
+so swapping the pair swaps the voices, and pinning a side handles a deck whose
+backs are not in the target language.
+
+Regions survive: `de-AT` with a `de → en` pair speaks the front in `de-AT`, not
+the bare `de`. `preferred_voice` names one specific voice, so it now applies
+only to the side whose language it was chosen for.
+
+The language reaches the engine on every path — the cache key already included
+it, so the two sides never share a clip. Abbreviation expansion moved onto the
+side's own language too: it keyed off `speech_language`, which would have
+turned an English *gen* into *Genitiv* the moment the back was spoken.
+
+This is also the gear menu's first non-boolean setting. `set_option` takes the
+type from the key rather than the payload, so a webview sending a string at a
+toggle still cannot store one.
+
 ### ✅ 5. Keyboard shortcut
 
 `lookup_shortcut` (default `Ctrl+Shift+T`, `""` disables) re-opens the popup
