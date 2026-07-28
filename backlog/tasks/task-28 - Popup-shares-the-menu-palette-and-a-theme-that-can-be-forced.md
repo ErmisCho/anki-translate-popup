@@ -31,4 +31,6 @@ The gear menu got its own near-black surface while the popup stayed the old mid-
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Done: the dark palette is now #131418 for the popup against the menu's #0b0c0f, one family with the menu still a shade darker so it reads as a panel in front. theme (auto/dark/light) puts a class on the popup element only, never on Anki's document; the dark block is scoped :not(.atp-theme-light) so forcing light needs no duplicate variable list, it falls through to the light defaults. Verified in Chrome: forced light renders light on a night-mode page, menu included.
+
+Follow-up on request: both surfaces darkened again - popup to the menu's old #0b0c0f and the menu to #050608 - with the hairline brightened to 11% since so little lightness now separates them.
 <!-- SECTION:FINAL_SUMMARY:END -->

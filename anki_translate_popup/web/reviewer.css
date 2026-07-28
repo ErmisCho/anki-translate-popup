@@ -103,9 +103,11 @@
 :root.night-mode .atp-popup:not(.atp-theme-light),
 :root[data-bs-theme="dark"] .atp-popup:not(.atp-theme-light),
 :root .atp-popup.atp-theme-dark {
-    /* One near-black family with the menu, a shade above it so the menu still
-       reads as a panel in front of the popup rather than part of its face. */
-    --atp-bg: #131418;
+    /* One near-black family with the menu, which now sits a shade below it:
+       the separation is carried by the menu's edge and shadow rather than by a
+       difference in lightness, so both surfaces can be as dark as each other
+       looks. */
+    --atp-bg: #0b0c0f;
     --atp-fg: #e7e9ec;
     --atp-muted: #98a1ab;
     --atp-border: rgba(255, 255, 255, 0.09);
@@ -115,11 +117,12 @@
     --atp-accent: #7cb0e8;
     --atp-error-bg: #3a1f1f;
     --atp-error-fg: #ffb4b0;
-    --atp-result-bg: #1c1e23;
-    /* Near-black, a step darker than the popup, so the menu sits clearly on
-       top of it rather than merging with it. */
-    --atp-menu-bg: #0b0c0f;
-    --atp-menu-line: rgba(255, 255, 255, 0.08);
+    --atp-result-bg: #16181c;
+    /* Darker still than the popup it opens over. With so little lightness
+       left to separate them, the hairline carries more of the work and is
+       brightened to match. */
+    --atp-menu-bg: #050608;
+    --atp-menu-line: rgba(255, 255, 255, 0.11);
     --atp-menu-ring: rgba(255, 255, 255, 0.06);
     --atp-menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.72);
 }
