@@ -379,6 +379,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Click the clipboard → turns into a tick for ~1s, then back; paste elsewhere to confirm
 - [ ] Select text *inside* the popup → popup does not reset
 - [ ] Resize the window while open → popup closes cleanly
+- [ ] Answer the card with the popup open → the popup closes with the card
+- [ ] Reveal the answer with the popup open → it closes too, rather than translating the question over the answer
+- [ ] Flip a gear toggle → the popup and its menu stay open
+- [ ] Press **x** or **c** with the popup open → it stays open
 - [ ] Click the source code (**DE**) → dropdown lists the configured languages plus *auto*
 - [ ] Click the target code (**EN**) → dropdown lists them **without** *auto*
 - [ ] Pick a different language → popup re-translates, does not merely relabel

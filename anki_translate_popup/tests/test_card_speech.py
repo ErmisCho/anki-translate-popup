@@ -674,6 +674,33 @@ class GearOptionAppliesNowTest(unittest.TestCase):
         shown.assert_not_called()
 
 
+class PopupClosesOnANewSideTest(unittest.TestCase):
+    """Only a card side appearing may take the popup away."""
+
+    def setUp(self):
+        addon._last_auto_spoken = None
+        self.addCleanup(setattr, addon, "_last_auto_spoken", None)
+
+    def payload(self, **kwargs):
+        web = mock.Mock()
+        reviewer = mock.Mock(web=web)
+        config = parse_config(dict(DEFAULTS))
+        with mock.patch.object(addon, "mw", mock.Mock(reviewer=reviewer)):
+            addon._push_card_text(FakeCard(), config, is_answer=False, **kwargs)
+        script = web.eval.call_args[0][0]
+        return json.loads(script.split("onCardText(", 1)[1].rsplit(");", 1)[0])
+
+    def test_a_new_side_says_so(self):
+        self.assertTrue(self.payload(new_side=True).get("newSide"))
+
+    def test_a_settings_re_push_does_not(self):
+        """A gear toggle must not close the popup it was opened from."""
+        self.assertNotIn("newSide", self.payload())
+
+    def test_a_pronounce_key_reply_does_not(self):
+        self.assertNotIn("newSide", self.payload(speak="prompt"))
+
+
 class ShortcutLanguageTest(unittest.TestCase):
     """x and c must speak a card in the language the card itself was spoken in."""
 
@@ -850,6 +877,9 @@ class PushCardTextTest(unittest.TestCase):
                 "promptLang": "de-DE",
                 "answer": "",
                 "answerLang": "en",
+                # A side appearing closes the popup: it would otherwise sit over
+                # the new card translating words that are no longer on screen.
+                "newSide": True,
             },
         )
 
@@ -863,6 +893,7 @@ class PushCardTextTest(unittest.TestCase):
                 "promptLang": "de-DE",
                 "answer": "the house",
                 "answerLang": "en",
+                "newSide": True,
             },
         )
 

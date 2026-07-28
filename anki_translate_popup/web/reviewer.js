@@ -972,6 +972,12 @@
         // this card's audio as we speak, and clearing the queue would take that
         // with it.
         stopBrowserSpeech();
+        // The reviewer page is built once a session and cards are swapped
+        // inside it, so nothing closes the popup on its own: it would sit over
+        // the next card showing a translation of words no longer on screen.
+        if (next && next.newSide) {
+            hide();
+        }
         cardText = {
             prompt: (next && next.prompt) || "",
             promptLang: (next && next.promptLang) || "",

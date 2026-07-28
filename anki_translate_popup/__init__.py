@@ -557,7 +557,12 @@ def _is_duplicate_card_side(card: Any, is_answer: bool) -> bool:
 
 
 def _push_card_text(
-    card: Any, config: AddonConfig, *, is_answer: bool, speak: str = ""
+    card: Any,
+    config: AddonConfig,
+    *,
+    is_answer: bool,
+    speak: str = "",
+    new_side: bool = False,
 ) -> None:
     """Hand the current card's spoken text to the webview.
 
@@ -604,6 +609,11 @@ def _push_card_text(
 
     if speak:
         payload["speak"] = speak
+    if new_side:
+        # Only a card side actually appearing carries this. The same push is
+        # made when a setting changes and when a pronounce key asks for text,
+        # and neither of those is a reason to take the popup away.
+        payload["newSide"] = True
 
     web.eval(
         "globalThis.ankiTranslatePopup && "
@@ -648,7 +658,7 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
             _push_webview_config(web, config)
     # Before the auto-pronounce gates: the shortcuts stay usable even when
     # nothing is spoken automatically, which is most of their point.
-    _push_card_text(card, config, is_answer=is_answer)
+    _push_card_text(card, config, is_answer=is_answer, new_side=True)
     if error or not config.auto_pronounce_card:
         return
     # The answer side is what the user is trying to recall, so speaking it is
