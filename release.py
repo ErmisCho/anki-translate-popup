@@ -117,6 +117,9 @@ def main(requested: str | None) -> int:
         raise SystemExit(f"{version} is not newer than the released {current}")
     print(f"releasing {current} -> {version}", flush=True)
 
+    # gh creates the tag on GitHub, not here, so a local-only view of the tags
+    # can miss a released version entirely.
+    run("git", "fetch", "--tags", "--quiet")
     tags = run("git", "tag", "--list", tag, capture=True)
     if tags:
         raise SystemExit(f"tag {tag} already exists")
