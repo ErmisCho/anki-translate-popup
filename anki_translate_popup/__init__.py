@@ -251,6 +251,7 @@ _TOGGLEABLE_OPTIONS = (
     "auto_translate",
     "auto_pronounce",
     "auto_pronounce_card",
+    "auto_pronounce_answer",
     "show_examples",
 )
 
@@ -261,14 +262,21 @@ ANSWER_DIVIDER = "<hr id=answer>"
 # a running Anki. Tags become spaces so sibling blocks do not run together.
 _STYLE_SCRIPT_RE = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _AV_TAG_RE = re.compile(r"\[(?:sound|anki:tts)[^\]]*\]", re.IGNORECASE)
+#: Tags that end a visual line. Everything else is inline and becomes a space.
+_BLOCK_TAG_RE = re.compile(
+    r"</?(?:address|article|aside|blockquote|br|dd|div|dl|dt|figure|figcaption"
+    r"|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td"
+    r"|tfoot|th|thead|tr|ul)\b[^>]*>",
+    re.IGNORECASE,
+)
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-def card_side_text(rendered: str, *, is_answer: bool) -> str:
-    """Plain text of one card side, ready to be spoken.
+def card_side_lines(rendered: str, *, is_answer: bool) -> List[str]:
+    """The visible lines of one card side, in order, blanks removed.
 
-    Anki renders the answer as question + divider + answer, so speaking the raw
-    answer would repeat the question on every card.
+    Anki renders the answer as question + divider + answer, so the question is
+    dropped from the answer side or every answer would repeat it.
     """
     if is_answer and ANSWER_DIVIDER in rendered:
         rendered = rendered.split(ANSWER_DIVIDER, 1)[1]
@@ -276,8 +284,31 @@ def card_side_text(rendered: str, *, is_answer: bool) -> str:
     text = _STYLE_SCRIPT_RE.sub(" ", rendered)
     # "[sound:hello.mp3]" is a media reference, not something to read aloud.
     text = _AV_TAG_RE.sub(" ", text)
-    text = _TAG_RE.sub(" ", text)
-    return " ".join(html.unescape(text).split())
+    text = _BLOCK_TAG_RE.sub("\n", text)
+    # Inline tags are dropped, not spaced: a browser renders "<b>x</b>, y" with
+    # no gap before the comma, and inserting one makes speech stumble.
+    text = _TAG_RE.sub("", text)
+
+    lines = []
+    for raw_line in html.unescape(text).split("\n"):
+        line = " ".join(raw_line.split())
+        if line:
+            lines.append(line)
+    return lines
+
+
+def card_side_text(rendered: str, *, is_answer: bool, first_line_only: bool = False) -> str:
+    """Plain text of one card side, ready to be spoken.
+
+    A vocabulary card's first line is the headword; the lines after it are
+    usually a label ("Example"), a sample sentence, or the very thing the user
+    is meant to be recalling - none of which should be read out. Hence
+    ``first_line_only``, which is the default for card auto-pronounce.
+    """
+    lines = card_side_lines(rendered, is_answer=is_answer)
+    if not lines:
+        return ""
+    return lines[0] if first_line_only else " ".join(lines)
 
 
 #: Anki can emit reviewer_did_show_question more than once for a single card
@@ -314,6 +345,10 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     config, error = _load_config()
     if error or not config.auto_pronounce_card:
         return
+    # The answer side is what the user is trying to recall, so speaking it is
+    # off unless asked for.
+    if is_answer and not config.auto_pronounce_answer:
+        return
     # A system voice would need the same missing gesture, so this feature is
     # only available through the online provider.
     if config.tts_provider == "system":
@@ -324,7 +359,9 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
 
     try:
         text = card_side_text(
-            card.answer() if is_answer else card.question(), is_answer=is_answer
+            card.answer() if is_answer else card.question(),
+            is_answer=is_answer,
+            first_line_only=config.speak_first_line_only,
         )
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for auto-pronounce")

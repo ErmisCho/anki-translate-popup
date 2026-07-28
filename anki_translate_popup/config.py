@@ -28,6 +28,8 @@ MAX_TTS_CACHE_MB = 10_000
 VALID_PROVIDERS = ("deepl", "libretranslate", "google_unofficial")
 #: "auto" prefers an installed system voice and only goes online without one.
 VALID_TTS_PROVIDERS = ("auto", "system", "google_unofficial")
+#: "first-line" speaks only the headword; "full" speaks the whole side.
+VALID_CARD_SPEECH_SCOPES = ("first-line", "full")
 
 #: Must stay in sync with config.json - Anki merges that file over these.
 DEFAULTS: Dict[str, Any] = {
@@ -49,6 +51,8 @@ DEFAULTS: Dict[str, Any] = {
     "auto_translate": True,
     "auto_pronounce": True,
     "auto_pronounce_card": True,
+    "auto_pronounce_answer": False,
+    "card_speech_scope": "first-line",
     "show_examples": True,
     "tts_provider": "auto",
     "speech_language": "de-DE",
@@ -79,7 +83,13 @@ class AddonConfig:
     auto_translate: bool
     auto_pronounce: bool
     auto_pronounce_card: bool
+    auto_pronounce_answer: bool
+    card_speech_scope: str
     show_examples: bool
+
+    @property
+    def speak_first_line_only(self) -> bool:
+        return self.card_speech_scope == "first-line"
     tts_provider: str
     speech_language: str
     preferred_voice: str
@@ -103,6 +113,7 @@ class AddonConfig:
             "autoTranslate": self.auto_translate,
             "autoPronounce": self.auto_pronounce,
             "autoPronounceCard": self.auto_pronounce_card,
+            "autoPronounceAnswer": self.auto_pronounce_answer,
             "showExamples": self.show_examples,
             "lookupShortcut": self.lookup_shortcut,
             "pickerLanguages": list(self.picker_languages),
@@ -264,6 +275,14 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         errors,
         allow_auto=False,
     )
+    card_speech_scope = _require_str(raw, "card_speech_scope", errors).lower()
+    if card_speech_scope not in VALID_CARD_SPEECH_SCOPES:
+        errors.append(
+            f"'card_speech_scope' must be one of {', '.join(VALID_CARD_SPEECH_SCOPES)}, "
+            f"got {card_speech_scope!r}."
+        )
+        card_speech_scope = str(DEFAULTS["card_speech_scope"])
+
     tts_provider = _require_str(raw, "tts_provider", errors).lower()
     if tts_provider not in VALID_TTS_PROVIDERS:
         errors.append(
@@ -308,6 +327,8 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
         auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),
+        auto_pronounce_answer=_require_bool(raw, "auto_pronounce_answer", errors),
+        card_speech_scope=card_speech_scope,
         show_examples=_require_bool(raw, "show_examples", errors),
         tts_provider=tts_provider,
         speech_language=speech_language,

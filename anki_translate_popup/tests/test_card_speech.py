@@ -59,6 +59,59 @@ class CardSideTextTest(unittest.TestCase):
         self.assertEqual(addon.card_side_text(rendered, is_answer=True), "a b")
 
 
+class FirstLineTest(unittest.TestCase):
+    """A vocabulary card's first line is the headword; the rest is not."""
+
+    # Taken from a real card: headword, then a literal "Example" label.
+    QUESTION_DIVS = '<div>der Gesichtspunkt, -e</div><div class="ex">Example</div>'
+    QUESTION_BRS = 'der Gesichtspunkt, -e<br><br><span class="ex">Example</span>'
+
+    def test_label_after_the_headword_is_not_spoken(self):
+        for rendered in (self.QUESTION_DIVS, self.QUESTION_BRS):
+            with self.subTest(rendered=rendered):
+                self.assertEqual(
+                    addon.card_side_text(rendered, is_answer=False, first_line_only=True),
+                    "der Gesichtspunkt, -e",
+                )
+
+    def test_full_scope_still_reads_everything(self):
+        self.assertEqual(
+            addon.card_side_text(self.QUESTION_DIVS, is_answer=False),
+            "der Gesichtspunkt, -e Example",
+        )
+
+    def test_lines_are_split_on_block_boundaries(self):
+        self.assertEqual(
+            addon.card_side_lines(self.QUESTION_DIVS, is_answer=False),
+            ["der Gesichtspunkt, -e", "Example"],
+        )
+
+    def test_inline_markup_does_not_split_a_line(self):
+        rendered = "<div>der <b>Gesichtspunkt</b>, -e</div>"
+        self.assertEqual(
+            addon.card_side_lines(rendered, is_answer=False), ["der Gesichtspunkt, -e"]
+        )
+
+    def test_leading_blank_blocks_are_skipped(self):
+        rendered = "<div><br></div><div>der Gesichtspunkt, -e</div><div>Example</div>"
+        self.assertEqual(
+            addon.card_side_text(rendered, is_answer=False, first_line_only=True),
+            "der Gesichtspunkt, -e",
+        )
+
+    def test_single_line_card_is_unaffected(self):
+        self.assertEqual(
+            addon.card_side_text("Das Haus", is_answer=False, first_line_only=True),
+            "Das Haus",
+        )
+
+    def test_empty_side_yields_nothing(self):
+        self.assertEqual(
+            addon.card_side_text("<div><br></div>", is_answer=False, first_line_only=True),
+            "",
+        )
+
+
 class FakeCard:
     def __init__(self, question: str = "Das Haus", answer: str = "Das Haus<hr id=answer>the house"):
         self._q = question
@@ -123,7 +176,7 @@ class AutoPronounceGatingTest(unittest.TestCase):
     def test_the_other_side_is_not_deduplicated(self):
         card = FakeCard()
         card.id = 42
-        with self.configure(auto_pronounce_card=True):
+        with self.configure(auto_pronounce_card=True, auto_pronounce_answer=True):
             addon.on_reviewer_did_show_question(card)
             addon.on_reviewer_did_show_answer(card)
         self.assertEqual(len(self.scheduled), 2)
@@ -168,12 +221,34 @@ class AutoPronounceGatingTest(unittest.TestCase):
             addon.on_reviewer_did_show_question(FakeCard(question="a " * MAX_SPEECH_CHARS))
         self.assertEqual(self.scheduled, [])
 
-    def test_answer_side_speaks_only_the_answer(self):
+    def test_answer_side_is_silent_by_default(self):
+        """The answer is what the user is recalling; speaking it gives it away."""
         with self.configure(auto_pronounce_card=True):
+            addon.on_reviewer_did_show_answer(FakeCard())
+        self.assertEqual(self.scheduled, [])
+
+    def test_answer_side_speaks_only_the_answer_when_enabled(self):
+        with self.configure(auto_pronounce_card=True, auto_pronounce_answer=True):
             with mock.patch.object(addon, "_synthesize_blocking") as synth:
                 addon.on_reviewer_did_show_answer(FakeCard())
                 self.scheduled[0]._op(None)
         synth.assert_called_once_with("the house")
+
+    def test_question_speaks_only_its_first_line_by_default(self):
+        card = FakeCard(question="<div>der Gesichtspunkt, -e</div><div>Example</div>")
+        with self.configure(auto_pronounce_card=True):
+            with mock.patch.object(addon, "_synthesize_blocking") as synth:
+                addon.on_reviewer_did_show_question(card)
+                self.scheduled[0]._op(None)
+        synth.assert_called_once_with("der Gesichtspunkt, -e")
+
+    def test_full_scope_speaks_the_whole_side(self):
+        card = FakeCard(question="<div>der Gesichtspunkt, -e</div><div>Example</div>")
+        with self.configure(auto_pronounce_card=True, card_speech_scope="full"):
+            with mock.patch.object(addon, "_synthesize_blocking") as synth:
+                addon.on_reviewer_did_show_question(card)
+                self.scheduled[0]._op(None)
+        synth.assert_called_once_with("der Gesichtspunkt, -e Example")
 
     def test_a_broken_card_never_raises_into_the_reviewer(self):
         class ExplodingCard:

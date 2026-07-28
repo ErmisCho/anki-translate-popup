@@ -17,6 +17,8 @@
     "auto_translate": true,
     "auto_pronounce": true,
     "auto_pronounce_card": true,
+    "auto_pronounce_answer": false,
+    "card_speech_scope": "first-line",
     "show_examples": true,
     "tts_provider": "auto",
     "speech_language": "de-DE",

@@ -394,6 +394,7 @@
         { key: "auto_translate", field: "autoTranslate", label: "Auto-translate selection" },
         { key: "auto_pronounce", field: "autoPronounce", label: "Auto-pronounce selection" },
         { key: "auto_pronounce_card", field: "autoPronounceCard", label: "Auto-pronounce card" },
+        { key: "auto_pronounce_answer", field: "autoPronounceAnswer", label: "…also the answer" },
         { key: "show_examples", field: "showExamples", label: "Show examples" },
     ];
 

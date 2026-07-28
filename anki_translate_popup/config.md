@@ -150,9 +150,11 @@ selection. Set to `false` if you would rather press the speaker yourself.
 
 ### `auto_pronounce_card`
 
-Speak the card side as soon as it appears, before you touch anything. Shows the
-German, hears the German. Also speaks the answer side when you reveal it — only
-the answer part, not a repeat of the question.
+Speak the card as soon as it appears, before you touch anything. Shows the
+German, hears the German.
+
+By default only the **question side** is spoken, and only its **first line** —
+see `card_speech_scope` and `auto_pronounce_answer` below.
 
 Toggleable from the **gear icon** in the popup, so you can silence it mid-review
 without opening this file.
@@ -170,6 +172,45 @@ It never interrupts a card's own `[sound:]` audio — the clip is queued after i
 not played over it.
 
 **Default:** `true`
+
+### `card_speech_scope`
+
+How much of the card side to speak.
+
+| Value | Behaviour |
+| --- | --- |
+| `first-line` | Only the first visible line — on a vocabulary card, the headword. |
+| `full` | The whole side. |
+
+A typical vocabulary card is laid out as headword, then a label, then an
+example sentence:
+
+```
+der Gesichtspunkt, -e
+Example
+```
+
+`full` would read *"der Gesichtspunkt, -e Example"* — the layout label included,
+and on richer cards the sample sentence and even the answer. `first-line` reads
+just `der Gesichtspunkt, -e`.
+
+Lines are split on block boundaries (`<div>`, `<br>`, `<p>`, …), which is what
+you see as a line break on the card. Inline markup like `<b>` does not split a
+line, so **der _Gesichtspunkt_, -e** stays one line and keeps its punctuation.
+
+Use `full` for sentence cards, where the whole side is the thing to hear.
+
+**Default:** `first-line`
+
+### `auto_pronounce_answer`
+
+Also speak the answer side when you reveal it. Off by default: the answer is
+what you are trying to recall, so speaking it hands it to you.
+
+When on, only the part after the answer divider is spoken, never a repeat of
+the question. Also on the gear menu, as *…also the answer*.
+
+**Default:** `false`
 
 ### `show_examples`
 
