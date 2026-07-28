@@ -476,6 +476,9 @@ Set up a deck with German cards, then work through these.
 - [ ] Answer the card and press **Again** → the question *is* spoken again: that is a real second showing
 - [ ] Under an `auto` pair, let the card auto-pronounce, then press **x** → the same language, not the `speech_language` fallback
 - [ ] `source_language: "auto"` on an English deck → the card is spoken in English, not the `speech_language` German
+- [ ] A card reading `die Aktie, -n` under an `auto` pair → spoken as German, not as English
+- [ ] A card with a German line then an English line, `card_speech_scope: full` → each line in its own voice
+- [ ] A card of three German lines → still one clip, not three
 - [ ] Same card again → spoken with no second detection request (check the log with `debug_logging: true`)
 - [ ] `source_language: "auto"` with no network → the card still speaks, using `speech_language`
 - [ ] Pin `front_speech_language` to a language → no detection happens at all

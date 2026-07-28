@@ -277,7 +277,19 @@ Two details:
   nor the pair names a language, the card side is sent to your translation
   provider to be identified, and the answer decides the voice. Only the first
   200 characters go, and the result is cached, so a card costs at most one
-  detection however often it comes round. If the detection fails, the voice
+  detection however often it comes round.
+
+  The **whole side** is what gets identified, even when only its first line is
+  spoken. A headword on its own — `die Aktie, -n` is thirteen characters of
+  noun and plural ending — is routinely called Dutch or English; the side it
+  came from is not.
+
+  Lines are then spoken in **their own** languages. A German headword followed
+  by an English definition is read by two voices rather than one, with
+  consecutive lines of a language staying in a single clip. A line under 25
+  characters is not judged alone: it follows the side. This applies only when
+  the pair leaves the language open — a configured pair is your own statement
+  about the deck, and is not second-guessed line by line. If the detection fails, the voice
   falls back to `speech_language` rather than staying silent.
 
   This is the one case where card auto-pronounce transmits text you did not

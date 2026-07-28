@@ -467,6 +467,89 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class SpeechSegmentTest(unittest.TestCase):
+    """A card side is not one language, and a headword is not a sample."""
+
+    GERMAN_LINE = "die Aktie, -n"
+    ENGLISH_LINE = "a share in a company, traded on a stock exchange"
+    GERMAN_SENTENCE = "Er hat seine Aktien gestern mit Gewinn verkauft."
+
+    def config(self, **overrides):
+        return parse_config(dict(DEFAULTS, **overrides))
+
+    def segments(self, lines, detections, **overrides):
+        """detections maps text -> language, standing in for the provider."""
+        config = self.config(**overrides)
+        seen = []
+
+        def detect(_config, text):
+            seen.append(text)
+            return detections.get(text, "")
+
+        with mock.patch.object(addon, "_detect_language", detect):
+            return addon._speech_segments(config, lines, is_answer=False), seen
+
+    def test_a_named_pair_is_one_clip_and_asks_nothing(self):
+        segments, seen = self.segments(
+            [self.GERMAN_LINE, self.ENGLISH_LINE], {}, source_language="de"
+        )
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0][1], "de-DE")
+        self.assertEqual(seen, [])
+
+    def test_a_short_headword_follows_the_side_not_itself(self):
+        """'die Aktie, -n' alone is what providers called English."""
+        whole = self.GERMAN_LINE + " " + self.GERMAN_SENTENCE
+        segments, seen = self.segments(
+            [self.GERMAN_LINE, self.GERMAN_SENTENCE],
+            {whole: "de", self.GERMAN_SENTENCE: "de"},
+            source_language="auto",
+        )
+        self.assertEqual([lang for _, lang in segments], ["de-DE"])
+        self.assertNotIn(self.GERMAN_LINE, seen)
+
+    def test_german_then_english_is_spoken_in_both(self):
+        whole = self.GERMAN_LINE + " " + self.ENGLISH_LINE
+        segments, _ = self.segments(
+            [self.GERMAN_LINE, self.ENGLISH_LINE],
+            {whole: "de", self.ENGLISH_LINE: "en"},
+            source_language="auto",
+        )
+        self.assertEqual(
+            segments, [(self.GERMAN_LINE, "de-DE"), (self.ENGLISH_LINE, "en")]
+        )
+
+    def test_consecutive_lines_of_one_language_stay_one_clip(self):
+        whole = " ".join([self.GERMAN_LINE, self.GERMAN_SENTENCE, self.ENGLISH_LINE])
+        segments, _ = self.segments(
+            [self.GERMAN_LINE, self.GERMAN_SENTENCE, self.ENGLISH_LINE],
+            {whole: "de", self.GERMAN_SENTENCE: "de", self.ENGLISH_LINE: "en"},
+            source_language="auto",
+        )
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0][0], self.GERMAN_LINE + " " + self.GERMAN_SENTENCE)
+        self.assertEqual(segments[1][1], "en")
+
+    def test_an_undecided_line_keeps_the_side_language(self):
+        whole = self.GERMAN_LINE + " " + self.ENGLISH_LINE
+        segments, _ = self.segments(
+            [self.GERMAN_LINE, self.ENGLISH_LINE],
+            {whole: "de"},  # the provider cannot place the long line either
+            source_language="auto",
+        )
+        self.assertEqual([lang for _, lang in segments], ["de-DE"])
+
+    def test_the_configured_region_survives_detection(self):
+        whole = self.GERMAN_LINE + " " + self.GERMAN_SENTENCE
+        segments, _ = self.segments(
+            [self.GERMAN_LINE, self.GERMAN_SENTENCE],
+            {whole: "de", self.GERMAN_SENTENCE: "de"},
+            source_language="auto",
+            speech_language="de-AT",
+        )
+        self.assertEqual(segments[0][1], "de-AT")
+
+
 class GearOptionAppliesNowTest(unittest.TestCase):
     """A gear change must take effect on the spot, not after a restart.
 

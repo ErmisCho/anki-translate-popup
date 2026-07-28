@@ -159,6 +159,52 @@ def _cached_detection(config: AddonConfig, text: str) -> str:
     return cache.get_detection(config.translation_provider, text) or ""
 
 
+#: A line shorter than this cannot be judged on its own. "die Aktie, -n" is
+#: thirteen characters of headword and plural suffix, which providers happily
+#: call Dutch or English; the side it came from says German without difficulty.
+MIN_DETECT_CHARS = 25
+
+SpeechSegment = Tuple[str, str]
+"""Text to speak, and the language to speak it in."""
+
+
+def _speech_segments(
+    config: AddonConfig, lines: List[str], *, is_answer: bool
+) -> List[SpeechSegment]:
+    """Split a card side into runs of one language. Runs on a worker thread.
+
+    A side is not one language: a German headword is routinely followed by an
+    English definition, and one voice reading both is what this exists to
+    avoid. Consecutive lines sharing a language stay in a single clip, so an
+    ordinary same-language card still costs exactly one request.
+
+    Only reached when the pair leaves the language open. A configured pair is
+    the user's own statement about the deck, and is not second-guessed
+    line-by-line.
+    """
+    if not config.speech_language_needs_detection(is_answer=is_answer):
+        return [(" ".join(lines), config.speech_language_for(is_answer=is_answer))]
+
+    # The side as a whole is the reliable sample, and the fallback for any line
+    # too short to speak for itself.
+    side_language = config.with_configured_region(
+        _detect_language(config, " ".join(lines))
+    )
+
+    segments: List[SpeechSegment] = []
+    for line in lines:
+        language = side_language
+        if len(line) >= MIN_DETECT_CHARS:
+            detected = _detect_language(config, line)
+            if detected:
+                language = config.with_configured_region(detected)
+        if segments and segments[-1][1] == language:
+            segments[-1] = (segments[-1][0] + " " + line, language)
+        else:
+            segments.append((line, language))
+    return segments
+
+
 def _detect_language(config: AddonConfig, text: str) -> str:
     """The language of a card side, asked of the provider and cached.
 
@@ -477,10 +523,6 @@ def card_side_text(rendered: str, *, is_answer: bool, first_line_only: bool = Fa
     return lines[0] if first_line_only else " ".join(lines)
 
 
-#: Anki can emit reviewer_did_show_question more than once for a single card
-#: (a re-render fires it again), and each one would queue another clip. Ignore
-#: a repeat of the same side within this window, but not a genuine re-review
-#: later on.
 #: The card side spoken automatically last, as (card id, is_answer). A side is
 #: never auto-spoken twice running: Anki re-emits its hooks whenever the
 #: reviewer is rebuilt - after a sync, an edit, or the More menu - and a
@@ -612,40 +654,39 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
         return
 
     try:
-        text = card_side_text(
-            card.answer() if is_answer else card.question(),
-            is_answer=is_answer,
-            first_line_only=config.speak_first_line_only,
+        lines = card_side_lines(
+            card.answer() if is_answer else card.question(), is_answer=is_answer
         )
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for auto-pronounce")
         return
+    if config.speak_first_line_only:
+        lines = lines[:1]
 
-    if not text:
+    if not lines:
         return
-    if len(text) > MAX_SPEECH_CHARS:
-        logger.debug("Card side too long to auto-pronounce (%s chars)", len(text))
+    if len(" ".join(lines)) > MAX_SPEECH_CHARS:
+        logger.debug("Card side too long to auto-pronounce")
         return
 
     # Resolved inside op rather than here: with the pair on "auto" this asks
     # the provider, which is a network call and has no business on the UI thread.
     needs_detection = config.speech_language_needs_detection(is_answer=is_answer)
 
-    def op(_col: Any) -> str:
-        lang = (
-            config.with_configured_region(_detect_language(config, text))
-            if needs_detection
-            else config.speech_language_for(is_answer=is_answer)
-        )
-        return _synthesize_blocking(text, lang)
+    def op(_col: Any) -> List[str]:
+        return [
+            _synthesize_blocking(text, language)
+            for text, language in _speech_segments(config, lines, is_answer=is_answer)
+        ]
 
-    def success(path: str) -> None:
+    def success(paths: List[str]) -> None:
         from anki.sound import SoundOrVideoTag
         from aqt.sound import av_player
 
         # append rather than play: play_file() clears the queue, which would cut
         # off any [sound:] tag Anki is already playing for this card.
-        av_player.append_tags([SoundOrVideoTag(filename=path)])
+        # In order: the clips are the card's own lines, split only by language.
+        av_player.append_tags([SoundOrVideoTag(filename=path) for path in paths])
         if needs_detection:
             # The language is in the cache now, so hand the shortcuts the same
             # one: x and c must not speak a card in a different voice to the
