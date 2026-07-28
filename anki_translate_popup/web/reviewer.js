@@ -71,7 +71,10 @@
     var copyResetTimer = null;
     // Spoken text for the card on screen, pushed by Python as each side
     // appears. `answer` is empty until the answer is actually shown.
-    var cardText = { prompt: "", promptLang: "", answer: "", answerLang: "" };
+    var cardText = {
+        prompt: "", promptLang: "", promptGuessed: false,
+        answer: "", answerLang: "", answerGuessed: false,
+    };
 
     function log() {
         if (!config.debug) {
@@ -979,6 +982,8 @@
             hide();
         }
         cardText = {
+            promptGuessed: !!(next && next.promptGuessed),
+            answerGuessed: !!(next && next.answerGuessed),
             prompt: (next && next.prompt) || "",
             promptLang: (next && next.promptLang) || "",
             answer: (next && next.answer) || "",
@@ -995,7 +1000,7 @@
         }
         var side = cardSide(wanted);
         if (side.text) {
-            speakText(side.text, side.lang);
+            speakText(side.text, side.lang, side.guessed);
         } else {
             log("nothing to speak for the", wanted, "side");
         }
@@ -1234,7 +1239,7 @@
     }
 
     /** Ask Python to synthesise and play the audio. */
-    function speakOnline(text, lang) {
+    function speakOnline(text, lang, verify) {
         if (typeof pycmd !== "function") {
             setStatus("Anki's JavaScript bridge is unavailable. Restart Anki.", "error");
             return;
@@ -1245,7 +1250,12 @@
         setStatus("Fetching audio…", "loading");
         pycmd(
             BRIDGE + "speak:" +
-            JSON.stringify({ id: pendingSpeechId, text: text, lang: lang || "" })
+            JSON.stringify({
+                id: pendingSpeechId,
+                text: text,
+                lang: lang || "",
+                detect: !!verify,
+            })
         );
     }
 
@@ -1328,7 +1338,7 @@
      * card side gets the same voice, rate and online fallback the Pronounce
      * button already has - only the language differs.
      */
-    function speakText(text, lang) {
+    function speakText(text, lang, verify) {
         if (!text) {
             return;
         }
@@ -1340,7 +1350,7 @@
 
         var mode = config.ttsProvider || DEFAULTS.ttsProvider;
         if (mode === "google_unofficial") {
-            speakOnline(text, lang);
+            speakOnline(text, lang, verify);
             return;
         }
 
@@ -1683,6 +1693,9 @@
         return {
             text: answer ? cardText.answer : cardText.prompt,
             lang: answer ? cardText.answerLang : cardText.promptLang,
+            // Whether that language is the pair's assumption rather than the
+            // user's instruction, and so worth checking against the text.
+            guessed: answer ? cardText.answerGuessed : cardText.promptGuessed,
         };
     }
 
@@ -1690,7 +1703,7 @@
     function speakCardSide(side) {
         var wanted = cardSide(side);
         if (wanted.text) {
-            speakText(wanted.text, wanted.lang);
+            speakText(wanted.text, wanted.lang, wanted.guessed);
             return;
         }
         // Nothing to say - either the answer is still hidden, or this page was

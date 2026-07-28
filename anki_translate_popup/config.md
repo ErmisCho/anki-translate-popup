@@ -303,6 +303,14 @@ Two details:
 Which side is "front" follows the card, not the note: on a reversed card the
 prompt is the note's Back field, and the *Front voice* setting applies to it.
 
+**A card laid out against the pair is checked, not assumed.** `auto` starts from
+the pair — front is the source, back is the target — but that only holds for a
+card built the way the pair describes. A reversed card puts the English on the
+front, and the assumption is then exactly backwards. So when you press a
+pronounce key on a side you have not pinned, the text is identified before it is
+spoken, on a worker thread, cached, and only for a key you actually pressed.
+Pinning a side to a real language skips that entirely and is taken at its word.
+
 **Defaults:** `"auto"` and `"auto"`
 
 ### `expand_abbreviations`

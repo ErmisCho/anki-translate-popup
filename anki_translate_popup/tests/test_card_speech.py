@@ -467,6 +467,88 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class ReversedCardTest(unittest.TestCase):
+    """A card laid out against the pair must not be spoken by the pair.
+
+    Taken from a real log: the English prompt of a reversed card was spoken in
+    de-DE and its German answer in en, because "front is the source, back is
+    the target" is only true of a card built the way the pair describes.
+    """
+
+    def payload(self, **overrides):
+        web = mock.Mock()
+        config = parse_config(dict(DEFAULTS, **overrides))
+        card = FakeCard(
+            question="the criterion, standard used to evaluate something",
+            answer="the criterion, standard used to evaluate something<hr id=answer>das Kriterium, Kriterien",
+        )
+        with mock.patch.object(addon, "mw", mock.Mock(reviewer=mock.Mock(web=web))):
+            addon._push_card_text(card, config, is_answer=True)
+        return json.loads(
+            web.eval.call_args[0][0].split("onCardText(", 1)[1].rsplit(");", 1)[0]
+        )
+
+    def test_an_unpinned_side_is_marked_as_a_guess(self):
+        payload = self.payload()
+        self.assertTrue(payload["promptGuessed"])
+        self.assertTrue(payload["answerGuessed"])
+
+    def test_a_pinned_side_is_taken_at_its_word(self):
+        payload = self.payload(front_speech_language="en", back_speech_language="de")
+        self.assertFalse(payload["promptGuessed"])
+        self.assertFalse(payload["answerGuessed"])
+        self.assertEqual(payload["promptLang"], "en")
+
+    def test_a_guessed_language_is_checked_against_the_text_before_speaking(self):
+        """The keypress is explicit, so identifying it is affordable and asked for."""
+        captured = {}
+
+        def synth(text, lang):
+            captured["lang"] = lang
+            return "audio.mp3"
+
+        op = {}
+        class FakeQueryOp:
+            def __init__(self, **kwargs):
+                op["run"] = kwargs["op"]
+            def without_collection(self):
+                return self
+            def run_in_background(self):
+                return None
+            def failure(self, _cb):
+                return self
+
+        with mock.patch.object(addon, "QueryOp", FakeQueryOp, create=True),              mock.patch.object(addon, "_synthesize_blocking", synth),              mock.patch.object(addon, "_detect_language", lambda _c, _t: "en"),              mock.patch.object(addon, "_raw_config", return_value=dict(DEFAULTS)):
+            addon._start_speech(mock.Mock(), 1, "das Kriterium", "de-DE", detect=True)
+            op["run"](None)
+        self.assertEqual(captured["lang"], "en")
+
+    def test_a_language_that_was_not_guessed_is_left_alone(self):
+        captured = {}
+
+        def synth(text, lang):
+            captured["lang"] = lang
+            return "audio.mp3"
+
+        op = {}
+        class FakeQueryOp:
+            def __init__(self, **kwargs):
+                op["run"] = kwargs["op"]
+            def without_collection(self):
+                return self
+            def run_in_background(self):
+                return None
+            def failure(self, _cb):
+                return self
+
+        asked = []
+        with mock.patch.object(addon, "QueryOp", FakeQueryOp, create=True),              mock.patch.object(addon, "_synthesize_blocking", synth),              mock.patch.object(addon, "_detect_language", lambda _c, t: asked.append(t)),              mock.patch.object(addon, "_raw_config", return_value=dict(DEFAULTS)):
+            addon._start_speech(mock.Mock(), 1, "das Kriterium", "de-DE")
+            op["run"](None)
+        self.assertEqual(captured["lang"], "de-DE")
+        self.assertEqual(asked, [])
+
+
 class DetectionContextTest(unittest.TestCase):
     """A headword is identified by the card it sits on, not by itself."""
 
@@ -966,6 +1048,10 @@ class PushCardTextTest(unittest.TestCase):
                 "promptLang": "de-DE",
                 "answer": "",
                 "answerLang": "en",
+                # Neither side's language was pinned by the user, so both are
+                # the pair's assumption and worth checking against the text.
+                "promptGuessed": True,
+                "answerGuessed": True,
                 # A side appearing closes the popup: it would otherwise sit over
                 # the new card translating words that are no longer on screen.
                 "newSide": True,
@@ -982,6 +1068,8 @@ class PushCardTextTest(unittest.TestCase):
                 "promptLang": "de-DE",
                 "answer": "the house",
                 "answerLang": "en",
+                "promptGuessed": True,
+                "answerGuessed": True,
                 "newSide": True,
             },
         )
@@ -1163,7 +1251,7 @@ class QtSpeechShortcutFallbackTest(unittest.TestCase):
                 addon._qt_pronounce_card_side(is_answer=False)
         stop.assert_called_once_with()
         start.assert_called_once_with(
-            self.mw.reviewer.web, 0, "Das Haus", "de-DE"
+            self.mw.reviewer.web, 0, "Das Haus", "de-DE", detect=True
         )
 
     def test_hidden_answer_and_system_only_mode_stay_silent(self):

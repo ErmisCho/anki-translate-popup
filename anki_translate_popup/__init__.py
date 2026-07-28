@@ -614,6 +614,12 @@ def _push_card_text(
             "promptLang": side_language(prompt_context, answer=False),
             "answer": answer_text,
             "answerLang": side_language(answer_context, answer=True),
+            # A language nobody pinned is a guess, however it was arrived at.
+            # "front is the source, back is the target" is only true of a card
+            # laid out the way the pair describes; a reversed card has the
+            # English on the front, and the guess is then exactly backwards.
+            "promptGuessed": config.front_speech_language == "auto",
+            "answerGuessed": config.back_speech_language == "auto",
         }
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for the pronounce shortcuts")
@@ -783,7 +789,16 @@ def _qt_pronounce_card_side(*, is_answer: bool) -> None:
     web = getattr(reviewer, "web", None)
     if web is not None:
         _qt_stop_speech()
-        _start_speech(web, 0, text, config.speech_language_for(is_answer=is_answer))
+        pinned = (
+            config.back_speech_language if is_answer else config.front_speech_language
+        ) != "auto"
+        _start_speech(
+            web,
+            0,
+            text,
+            config.speech_language_for(is_answer=is_answer),
+            detect=not pinned,
+        )
 
 
 def _qt_stop_speech() -> None:
@@ -951,7 +966,9 @@ def _apply_card_speech_toggle(key: str, enabled: bool) -> None:
     _on_card_side_shown(card, is_answer=is_answer)
 
 
-def _start_speech(web: Any, request_id: int, text: str, lang: str = "") -> None:
+def _start_speech(
+    web: Any, request_id: int, text: str, lang: str = "", detect: bool = False
+) -> None:
     text = text.strip()
     if not text:
         return
@@ -971,7 +988,17 @@ def _start_speech(web: Any, request_id: int, text: str, lang: str = "") -> None:
         return
 
     def op(_col: Any) -> str:
-        return _synthesize_blocking(text, lang)
+        spoken_in = lang
+        if detect:
+            # A worker thread already, and only on a key the user pressed, so
+            # the request is both affordable and asked for. Cached, so a card
+            # costs one however often it is spoken.
+            config, error = _load_config()
+            if not error:
+                identified = _detect_language(config, text)
+                if identified:
+                    spoken_in = config.with_configured_region(identified)
+        return _synthesize_blocking(text, spoken_in)
 
     def success(path: str) -> None:
         # Imported lazily: this module is loaded during Anki's startup, before
@@ -1216,7 +1243,7 @@ def on_js_message(
     if command == "translate":
         _start_translation(web, request_id, text, _context_deck_id(context))
     elif command == "speak":
-        _start_speech(web, request_id, text, lang)
+        _start_speech(web, request_id, text, lang, detect=bool(payload.get("detect")))
     else:
         _copy_to_clipboard(web, request_id, text)
     return True, None

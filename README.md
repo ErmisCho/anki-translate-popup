@@ -404,6 +404,8 @@ Set up a deck with German cards, then work through these.
 - [ ] Press **`x`** then **`c`** quickly → the second interrupts the first, they do not queue
 - [ ] Press **`c`** twice → it speaks twice; the auto-pronounce dedupe does not swallow it
 - [ ] Review a reversed card → `x` still speaks the prompt, `c` still speaks what you were recalling
+- [ ] On a **reversed** card (English front, German back): `x` speaks English, `c` speaks German — not the pair's way round
+- [ ] Pin `front_speech_language` → that side is spoken in it with no identification request
 - [ ] On a type-in-the-answer card, type a word containing **x** and **c** → both letters land in the field and nothing is spoken
 - [ ] Set `pronounce_answer_shortcut: ""` → `c` does nothing, `x` still works
 - [ ] With a `de → en` pair, press `x` then `c` → German voice for the front, English voice for the back
