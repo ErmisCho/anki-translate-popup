@@ -142,6 +142,23 @@ def _get_cache(config: AddonConfig) -> Optional[TranslationCache]:
 # -- translation (worker thread) --------------------------------------------
 
 
+def _cached_detection(config: AddonConfig, text: str) -> str:
+    """A detection already paid for, or "" - never a request.
+
+    Runs on the UI thread, where a network call has no business. The card's own
+    auto-pronounce fills this cache, and re-pushes the card text once it has, so
+    the pronounce shortcuts end up speaking the language the card was spoken in
+    rather than a different one.
+    """
+    text = text.strip()
+    if not text:
+        return ""
+    cache = _get_cache(config)
+    if cache is None:
+        return ""
+    return cache.get_detection(config.translation_provider, text) or ""
+
+
 def _detect_language(config: AddonConfig, text: str) -> str:
     """The language of a card side, asked of the provider and cached.
 
@@ -460,22 +477,26 @@ def card_side_text(rendered: str, *, is_answer: bool, first_line_only: bool = Fa
 #: (a re-render fires it again), and each one would queue another clip. Ignore
 #: a repeat of the same side within this window, but not a genuine re-review
 #: later on.
-AUTO_SPEAK_DEDUPE_SECONDS = 2.0
-_last_auto_spoken: Optional[Tuple[int, bool, float]] = None
+#: The card side spoken automatically last, as (card id, is_answer). A side is
+#: never auto-spoken twice running: Anki re-emits its hooks whenever the
+#: reviewer is rebuilt - after a sync, an edit, or the More menu - and a
+#: rebuild is not the user asking for the card again. A two-second window used
+#: to stand in for this and let anything slower through.
+_last_auto_spoken: Optional[Tuple[int, bool]] = None
 
 
-def _is_duplicate_card_side(card: Any, is_answer: bool, now: float) -> bool:
+def _is_duplicate_card_side(card: Any, is_answer: bool) -> bool:
+    """Whether this side was the last one spoken automatically.
+
+    Only the side immediately before counts, so answering a card and meeting it
+    again still speaks: something else was shown in between. A rebuild of the
+    same side, however long after, does not.
+    """
     global _last_auto_spoken
-    card_id = int(getattr(card, "id", 0) or 0)
-    previous = _last_auto_spoken
-    if (
-        previous is not None
-        and previous[0] == card_id
-        and previous[1] == is_answer
-        and now - previous[2] < AUTO_SPEAK_DEDUPE_SECONDS
-    ):
+    side = (int(getattr(card, "id", 0) or 0), is_answer)
+    if _last_auto_spoken == side:
         return True
-    _last_auto_spoken = (card_id, is_answer, now)
+    _last_auto_spoken = side
     return False
 
 
@@ -499,18 +520,27 @@ def _push_card_text(
         return
 
     first_line = config.speak_first_line_only
+
+    def side_language(text: str, *, answer: bool) -> str:
+        """The same rule the card's own auto-pronounce follows."""
+        if not config.speech_language_needs_detection(is_answer=answer):
+            return config.speech_language_for(is_answer=answer)
+        return config.with_configured_region(_cached_detection(config, text))
+
     try:
+        prompt = card_side_text(
+            card.question(), is_answer=False, first_line_only=first_line
+        )
+        answer_text = (
+            card_side_text(card.answer(), is_answer=True, first_line_only=first_line)
+            if is_answer
+            else ""
+        )
         payload: Dict[str, Any] = {
-            "prompt": card_side_text(
-                card.question(), is_answer=False, first_line_only=first_line
-            ),
-            "promptLang": config.speech_language_for(is_answer=False),
-            "answer": (
-                card_side_text(card.answer(), is_answer=True, first_line_only=first_line)
-                if is_answer
-                else ""
-            ),
-            "answerLang": config.speech_language_for(is_answer=True),
+            "prompt": prompt,
+            "promptLang": side_language(prompt, answer=False),
+            "answer": answer_text,
+            "answerLang": side_language(answer_text, answer=True),
         }
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for the pronounce shortcuts")
@@ -573,7 +603,7 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     # only available through the online provider.
     if config.tts_provider == "system":
         return
-    if _is_duplicate_card_side(card, is_answer, time.monotonic()):
+    if _is_duplicate_card_side(card, is_answer):
         logger.debug("Skipping duplicate auto-pronounce for the same card side")
         return
 
@@ -612,6 +642,11 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
         # append rather than play: play_file() clears the queue, which would cut
         # off any [sound:] tag Anki is already playing for this card.
         av_player.append_tags([SoundOrVideoTag(filename=path)])
+        if needs_detection:
+            # The language is in the cache now, so hand the shortcuts the same
+            # one: x and c must not speak a card in a different voice to the
+            # one it just spoke itself.
+            _push_card_text(card, config, is_answer=is_answer)
 
     def failure(exc: Exception) -> None:
         # Unprompted playback must stay quiet about its failures: the user did
@@ -729,6 +764,16 @@ def _sync_qt_speech_shortcuts(focused: Any = None, _old: Any = None) -> None:
             pass
     for shortcut in _qt_speech_shortcuts:
         shortcut.setEnabled(not web_focused)
+
+
+def on_sync_will_start() -> None:
+    """Silence the card when a sync begins.
+
+    A sync rebuilds the reviewer, which re-emits the hooks that started this
+    audio. The user asked to sync, not to hear the card again: the dedupe keeps
+    the rebuild quiet, and this stops what is already playing.
+    """
+    _qt_stop_speech()
 
 
 def on_state_did_change(new_state: Any, _old_state: Any) -> None:
@@ -1211,6 +1256,11 @@ def setup() -> None:
     gui_hooks.reviewer_did_show_answer.append(on_reviewer_did_show_answer)
     gui_hooks.state_shortcuts_will_change.append(on_state_shortcuts_will_change)
     gui_hooks.state_did_change.append(on_state_did_change)
+    # Guarded: min_point_version reaches back further than this hook does, and a
+    # missing one must not stop the add-on loading.
+    sync_will_start = getattr(gui_hooks, "sync_will_start", None)
+    if sync_will_start is not None:
+        sync_will_start.append(on_sync_will_start)
     gui_hooks.focus_did_change.append(_sync_qt_speech_shortcuts)
     logger.info("%s loaded", ADDON_NAME)
 

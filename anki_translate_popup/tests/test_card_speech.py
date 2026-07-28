@@ -277,16 +277,33 @@ class AutoPronounceGatingTest(unittest.TestCase):
             addon.on_reviewer_did_show_question(second)
         self.assertEqual(len(self.scheduled), 2)
 
-    def test_a_genuine_re_review_after_the_window_speaks_again(self):
+    def test_a_rebuild_stays_quiet_however_long_after(self):
+        """A sync or an edit can rebuild the reviewer minutes later.
+
+        The old rule was a two-second window, which let exactly those cases
+        through and spoke the card a second time.
+        """
         card = FakeCard()
         card.id = 42
         with self.configure(auto_pronounce_card=True):
             addon.on_reviewer_did_show_question(card)
-            base = addon._last_auto_spoken[2]
-            # Pretend the first showing was longer ago than the dedupe window.
-            addon._last_auto_spoken = (42, False, base - addon.AUTO_SPEAK_DEDUPE_SECONDS - 1)
+            addon.on_reviewer_did_show_question(card)  # the rebuild
+        self.assertEqual(len(self.scheduled), 1)
+
+    def test_meeting_the_card_again_after_its_answer_speaks_again(self):
+        """Answer, press Again, and the question is genuinely being asked anew."""
+        card = FakeCard()
+        card.id = 42
+        with self.configure(auto_pronounce_card=True, auto_pronounce_answer=True):
             addon.on_reviewer_did_show_question(card)
-        self.assertEqual(len(self.scheduled), 2)
+            addon.on_reviewer_did_show_answer(card)
+            addon.on_reviewer_did_show_question(card)
+        self.assertEqual(len(self.scheduled), 3)
+
+    def test_a_sync_silences_the_card(self):
+        with mock.patch.object(addon, "_qt_stop_speech") as stop:
+            addon.on_sync_will_start()
+        stop.assert_called_once()
 
     def test_disabled_does_nothing(self):
         with self.configure(auto_pronounce_card=False):
@@ -448,6 +465,54 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
             addon.prepare_speech_text("the gen on that", config, "en"),
             "the gen on that",
         )
+
+
+class ShortcutLanguageTest(unittest.TestCase):
+    """x and c must speak a card in the language the card itself was spoken in."""
+
+    def configure(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return mock.patch.object(addon, "_raw_config", return_value=raw)
+
+    def pushed(self, card, **overrides):
+        web = mock.Mock()
+        reviewer = mock.Mock()
+        reviewer.web = web
+        with self.configure(**overrides) as _cfg:
+            config = parse_config(dict(DEFAULTS, **overrides))
+            with mock.patch.object(addon, "mw", mock.Mock(reviewer=reviewer)):
+                addon._push_card_text(card, config, is_answer=False)
+        if not web.eval.called:
+            return {}
+        payload = web.eval.call_args[0][0]
+        start = payload.index("{")
+        return json.loads(payload[start : payload.rindex("}") + 1])
+
+    def test_a_named_pair_needs_no_cache(self):
+        card = FakeCard()
+        payload = self.pushed(card, source_language="de", speech_language="de-DE")
+        self.assertEqual(payload["promptLang"], "de-DE")
+
+    def test_an_auto_pair_uses_a_detection_already_paid_for(self):
+        card = FakeCard()
+        cache = mock.Mock()
+        cache.get_detection.return_value = "el"
+        with mock.patch.object(addon, "_get_cache", return_value=cache):
+            payload = self.pushed(card, source_language="auto")
+        self.assertEqual(payload["promptLang"], "el")
+
+    def test_an_auto_pair_with_nothing_cached_never_makes_a_request(self):
+        """This runs on the UI thread; falling back beats blocking it."""
+        card = FakeCard()
+        cache = mock.Mock()
+        cache.get_detection.return_value = None
+        with mock.patch.object(addon, "_get_cache", return_value=cache), mock.patch.object(
+            addon, "build_translator"
+        ) as translator:
+            payload = self.pushed(card, source_language="auto", speech_language="de-DE")
+        self.assertEqual(payload["promptLang"], "de-DE")
+        translator.assert_not_called()
 
 
 class OnlineSpeechGateTest(unittest.TestCase):

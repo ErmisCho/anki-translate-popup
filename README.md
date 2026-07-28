@@ -465,6 +465,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Same card side re-rendering → spoken once, not twice
 - [ ] A card with its own `[sound:]` audio → Anki's clip plays first, the spoken text follows, neither is cut off
 - [ ] Turn *Speak the card as it appears* off in the gear → next card is silent
+- [ ] **Sync** while a card is being spoken → the audio stops, and the card is not spoken again afterwards
+- [ ] Edit a card, or open **More**, and come back → not spoken again, however long you took
+- [ ] Answer the card and press **Again** → the question *is* spoken again: that is a real second showing
+- [ ] Under an `auto` pair, let the card auto-pronounce, then press **x** → the same language, not the `speech_language` fallback
 - [ ] `source_language: "auto"` on an English deck → the card is spoken in English, not the `speech_language` German
 - [ ] Same card again → spoken with no second detection request (check the log with `debug_logging: true`)
 - [ ] `source_language: "auto"` with no network → the card still speaks, using `speech_language`
@@ -568,7 +572,14 @@ Set up a deck with German cards, then work through these.
     fallback after Sync/Edit/More can use online-capable modes, but strict
     `tts_provider: system` needs the keypress inside Chromium. Click the card to
     restore focus; the fallback never weakens the no-network promise.
-13. **Auto-lookup changes the privacy posture.** With the defaults, selecting
+13. **The pronounce keys cannot detect a language on their own.** Under an
+    `auto` pair, `x` and `c` use a detection the card's own auto-pronounce
+    already paid for. With `auto_pronounce_card` off there is nothing in the
+    cache and they fall back to `speech_language`, because they are handled on
+    the UI thread where a network call would freeze the reviewer. Pin
+    `front_speech_language` / `back_speech_language`, or name a real
+    `source_language`, if you want them exact without card auto-pronounce.
+14. **Auto-lookup changes the privacy posture.** With the defaults, selecting
     text transmits it immediately — no button press gates it any more. This was
     an explicit request; `auto_translate`, `auto_pronounce` and `show_examples`
     each turn their own request off.

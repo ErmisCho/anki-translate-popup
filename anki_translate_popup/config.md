@@ -182,7 +182,11 @@ Speak the card as soon as it appears, before you touch anything. Shows the
 German, hears the German.
 
 It is queued behind the card's own `[sound:]` rather than replacing it, so
-neither is cut off. Starting a new pronunciation yourself — selecting text, or
+neither is cut off. A side is spoken **once**: Anki rebuilds the reviewer
+page after a sync, an edit, or the More menu, and re-emits the hooks that
+started the audio, but a rebuild is not you asking for the card again. Starting
+a sync also stops whatever is playing. Answering the card and meeting it again
+does speak it, because that is a genuine second showing. Starting a new pronunciation yourself — selecting text, or
 pressing a pronounce key — does stop it: only one thing speaks at a time.
 
 By default only the **question side** is spoken, and only its **first line** —
