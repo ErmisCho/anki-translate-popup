@@ -22,6 +22,7 @@
         sourceLanguage: "de",
         targetLanguage: "en",
         speechLanguage: "de-DE",
+        voiceGender: "female",
         preferredVoice: "",
         speechRate: 0.9,
         fontSize: 14,
@@ -56,6 +57,8 @@
     // Last language the provider actually reported, so a swap away from "auto"
     // has something concrete to make the new target.
     var detectedSource = "";
+    // Set when Pronounce fired before the provider had named the language.
+    var speakWhenDetected = false;
     var requestCounter = 0;
     var pendingRequestId = 0;
     var pendingSpeechId = 0;
@@ -286,8 +289,20 @@
     }
 
     function setLanguages(source, target) {
-        el.langSource.textContent = languageLabel(source);
+        el.langSource.textContent = sourceLabel(source);
         el.langTarget.textContent = languageLabel(target);
+    }
+
+    /**
+     * "AUTO" stays on the header while auto is configured, with what was
+     * detected beside it: the setting is sticky, the detection is per selection,
+     * and a header that simply read "DE" looked as though the pair had changed.
+     */
+    function sourceLabel(source) {
+        if (String(source == null ? "" : source).toLowerCase() !== "auto") {
+            return languageLabel(source);
+        }
+        return detectedSource ? "AUTO·" + languageLabel(detectedSource) : "AUTO";
     }
 
     // -- language pair --------------------------------------------------------
@@ -446,6 +461,13 @@
     var VOICE_ITEMS = [
         { key: "front_speech_language", field: "frontSpeechLanguage", label: "Voice for the front" },
         { key: "back_speech_language", field: "backSpeechLanguage", label: "Voice for the back" },
+        {
+            key: "voice_gender",
+            field: "voiceGender",
+            label: "Prefer a voice",
+            options: ["female", "male", "any"],
+            names: { female: "Female", male: "Male", any: "Any" },
+        },
     ];
 
     /** The menu element is shared, so a height forced onto one must not outlive it. */
@@ -484,8 +506,24 @@
         openSettings();
     }
 
-    function voiceLabel(code) {
+    /** A row's value as shown: its own wording where it has some, else a code. */
+    function voiceLabel(code, item) {
+        if (item && item.names && item.names[code]) {
+            return item.names[code];
+        }
         return code === "auto" || !code ? "Auto" : languageLabel(code);
+    }
+
+    /** A row offering a fixed set of choices lists those; the rest list languages. */
+    function voiceOptions(item, current) {
+        if (item.options) {
+            return item.options.slice();
+        }
+        var options = ["auto"].concat(languageOptions("voice"));
+        if (current !== "auto" && options.indexOf(current) === -1) {
+            options.push(current); // never hide the value that is actually set
+        }
+        return options;
     }
 
     /**
@@ -494,22 +532,19 @@
      * picking a language or pressing Escape returns to the settings list.
      */
     function openVoicePicker(voice) {
-        var current = String(config[voice.field] || "auto").toLowerCase();
+        var fallback = voice.options ? voice.options[0] : "auto";
+        var current = String(config[voice.field] || fallback).toLowerCase();
         el.menu.textContent = "";
         el.menu.className = "atp-menu"; // a language list scrolls, unlike the settings
         el.menu.setAttribute("role", "listbox");
 
-        var options = ["auto"].concat(languageOptions("voice"));
-        if (current !== "auto" && options.indexOf(current) === -1) {
-            options.push(current);
-        }
-        options.forEach(function (code) {
+        voiceOptions(voice, current).forEach(function (code) {
             var item = document.createElement("div");
             item.className = "atp-menu-item";
             item.setAttribute("role", "option");
             item.setAttribute("aria-selected", code === current ? "true" : "false");
             item.tabIndex = 0;
-            item.textContent = voiceLabel(code);
+            item.textContent = voiceLabel(code, voice);
             onActivate(item, function () {
                 config[voice.field] = code;
                 if (typeof pycmd === "function") {
@@ -583,7 +618,7 @@
             label.textContent = voice.label;
             var value = document.createElement("span");
             value.className = "atp-voice-value";
-            value.textContent = voiceLabel(config[voice.field]);
+            value.textContent = voiceLabel(config[voice.field], voice);
             item.appendChild(label);
             item.appendChild(value);
 
@@ -699,6 +734,10 @@
 
         selectedText = text;
         pendingRequestId = 0;
+        // A detection belongs to the selection it was made for. Keeping it would
+        // read the next selection in the last one's language.
+        detectedSource = "";
+        speakWhenDetected = false;
         closePicker();
         setResult("");
         setStatus("");
@@ -722,6 +761,18 @@
         if (config.autoPronounce) {
             pronounce();
         }
+    }
+
+    /**
+     * True while the language of this selection is still unknown and on its way.
+     *
+     * Only "auto" needs this: any other source is already the answer. Speaking
+     * before the provider replies would use the *previous* selection's language,
+     * which is how a German word and the English one after it both came out in
+     * German.
+     */
+    function awaitingDetection() {
+        return config.sourceLanguage === "auto" && !detectedSource && !!pendingRequestId;
     }
 
     function hide() {
@@ -828,13 +879,19 @@
             if (payload.sourceLang && payload.sourceLang !== "auto") {
                 detectedSource = String(payload.sourceLang);
             }
-            setLanguages(payload.sourceLang, payload.targetLang);
+            setLanguages(config.sourceLanguage, payload.targetLang);
             setResult(payload.text);
             setExamples(payload.examples);
         } else {
             setResult("");
             setExamples(null);
             setStatus(payload.error || "Translation failed.", "error");
+        }
+        // Speech held back for the language now has it - or knows it never
+        // arrived, in which case it falls back rather than staying silent.
+        if (speakWhenDetected) {
+            speakWhenDetected = false;
+            pronounce();
         }
         // The popup was placed while empty; it is much taller now, so it has to
         // be re-anchored or a selection near the bottom pushes it off-screen.
@@ -890,6 +947,9 @@
         }
         activeUtterance = null;
         pendingSpeechId = 0;
+        // Also cancels speech that is only waiting for a language: stopping
+        // means stopping, and a closed popup must not speak on a late reply.
+        speakWhenDetected = false;
         // Only reach across the bridge if online audio could actually be playing.
         if (onlineSpeechActive && typeof pycmd === "function") {
             onlineSpeechActive = false;
@@ -973,12 +1033,67 @@
     }
 
     /** Exact preferred name > exact locale > same base language > none. */
-    function pickVoice(voices, wantedLang, preferredName) {
+    /*
+     * The Web Speech API exposes no gender, so it is read off the name. Google's
+     * voices say so outright ("Google UK English Female"); Microsoft's are first
+     * names, which is what the tables are for.
+     *
+     * ponytail: a name table only knows the voices in it - an unlisted voice
+     * counts as neither gender and simply loses the tie-break. Extend it when
+     * one turns up, or name the voice outright with preferred_voice.
+     */
+    var FEMALE_VOICE_NAMES = [
+        "zira", "hazel", "susan", "linda", "heera", "catherine", "eva", "michelle",
+        "katja", "hedda", "marlene", "hortense", "julie", "helena", "laura",
+        "sabina", "elsa", "hanna", "maria", "helia", "paulina", "irina",
+        "huihui", "yaoyao", "tracy", "melina",
+    ];
+    var MALE_VOICE_NAMES = [
+        "david", "mark", "james", "george", "ravi", "richard", "sean", "guy",
+        "stefan", "paul", "pablo", "raul", "cosimo", "frank", "daniel", "adam",
+        "tolga", "pavel", "kangkang", "stefanos", "nestoras",
+    ];
+
+    /** "female", "male", or "" when the name says nothing either way. */
+    function voiceGenderOf(voice) {
+        var name = String((voice && voice.name) || "").toLowerCase();
+        // Before the "male" test: "female" contains it.
+        if (name.indexOf("female") !== -1) {
+            return "female";
+        }
+        if (name.indexOf("male") !== -1) {
+            return "male";
+        }
+        var words = name.split(/[^a-zà-ÿ]+/);
+        for (var i = 0; i < words.length; i++) {
+            if (FEMALE_VOICE_NAMES.indexOf(words[i]) !== -1) {
+                return "female";
+            }
+            if (MALE_VOICE_NAMES.indexOf(words[i]) !== -1) {
+                return "male";
+            }
+        }
+        return "";
+    }
+
+    function normaliseLang(code) {
+        return String(code || "").toLowerCase().replace("_", "-");
+    }
+
+    /**
+     * The best voice for a language, chosen the same way every time.
+     *
+     * The old version returned the first match, so enumeration order decided
+     * which voice spoke - the same word could come out male, then female. Every
+     * candidate is now scored and ties break on the name, which is stable.
+     */
+    function pickVoice(voices, wantedLang, preferredName, gender) {
         if (!voices || !voices.length) {
             return null;
         }
         var i;
         if (preferredName) {
+            // An explicitly named voice outranks every preference.
             var wantedName = preferredName.toLowerCase();
             for (i = 0; i < voices.length; i++) {
                 if (String(voices[i].name).toLowerCase() === wantedName) {
@@ -986,19 +1101,28 @@
                 }
             }
         }
-        var lang = String(wantedLang || "").toLowerCase().replace("_", "-");
+        var lang = normaliseLang(wantedLang);
         var base = lang.split("-")[0];
+        var wanted = gender || "any";
+        var best = null;
+        var bestScore = -1;
         for (i = 0; i < voices.length; i++) {
-            if (String(voices[i].lang).toLowerCase().replace("_", "-") === lang) {
-                return voices[i];
+            var voice = voices[i];
+            var voiceLang = normaliseLang(voice.lang);
+            if (voiceLang.split("-")[0] !== base) {
+                continue; // wrong language: never traded away for a gender
+            }
+            // Region beats gender: an en-GB request wants a British voice more
+            // than it wants a female one.
+            var score =
+                (voiceLang === lang ? 2 : 0) +
+                (wanted === "any" || voiceGenderOf(voice) === wanted ? 1 : 0);
+            if (score > bestScore || (score === bestScore && best && voice.name < best.name)) {
+                best = voice;
+                bestScore = score;
             }
         }
-        for (i = 0; i < voices.length; i++) {
-            if (String(voices[i].lang).toLowerCase().replace("_", "-").split("-")[0] === base) {
-                return voices[i];
-            }
-        }
-        return null;
+        return best;
     }
 
     /*
@@ -1064,6 +1188,13 @@
     }
 
     function pronounce() {
+        if (awaitingDetection()) {
+            // Not a delay for its own sake: the language is seconds away and
+            // speaking now would use the previous selection's.
+            speakWhenDetected = true;
+            setStatus("Detecting language…", "loading");
+            return;
+        }
         speakText(selectedText, selectionSpeechLanguage());
     }
 
@@ -1137,7 +1268,7 @@
                 baseLanguage(lang) === baseLanguage(config.speechLanguage)
                     ? config.preferredVoice
                     : "";
-            var voice = pickVoice(voices, lang, preferred);
+            var voice = pickVoice(voices, lang, preferred, config.voiceGender);
             if (!voice) {
                 // Windows may report the language as installed while exposing
                 // no usable voice (Narrator-only "natural voices" do this), so
@@ -1540,6 +1671,7 @@
         _pickVoice: pickVoice,
         _prepareSpeechText: prepareSpeechText,
         _selectionSpeechLanguage: selectionSpeechLanguage,
+        _voiceGenderOf: voiceGenderOf,
     };
 
     log("initialised", config);

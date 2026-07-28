@@ -30,6 +30,10 @@ VALID_PROVIDERS = ("deepl", "libretranslate", "google_unofficial")
 VALID_TTS_PROVIDERS = ("auto", "system", "google_unofficial")
 #: "first-line" speaks only the headword; "full" speaks the whole side.
 VALID_CARD_SPEECH_SCOPES = ("first-line", "full")
+#: The Web Speech API does not report a voice's gender, so this is a
+#: preference applied by name, not a guarantee - see _voice_gender in
+#: reviewer.js. "any" takes whatever the language offers.
+VALID_VOICE_GENDERS = ("female", "male", "any")
 
 #: Must stay in sync with config.json - Anki merges that file over these.
 DEFAULTS: Dict[str, Any] = {
@@ -57,6 +61,7 @@ DEFAULTS: Dict[str, Any] = {
     "auto_pronounce_card": True,
     "auto_pronounce_answer": False,
     "card_speech_scope": "first-line",
+    "voice_gender": "female",
     "front_speech_language": "auto",
     "back_speech_language": "auto",
     "expand_abbreviations": True,
@@ -96,6 +101,7 @@ class AddonConfig:
     auto_pronounce_card: bool
     auto_pronounce_answer: bool
     card_speech_scope: str
+    voice_gender: str
     front_speech_language: str
     back_speech_language: str
     expand_abbreviations: bool
@@ -176,6 +182,7 @@ class AddonConfig:
             "sourcePickerLanguages": source_picker,
             "targetPickerLanguages": target_picker,
             "ttsProvider": self.tts_provider,
+            "voiceGender": self.voice_gender,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
             "speechRate": self.speech_rate,
@@ -408,6 +415,14 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         )
         card_speech_scope = str(DEFAULTS["card_speech_scope"])
 
+    voice_gender = _require_str(raw, "voice_gender", errors).lower()
+    if voice_gender not in VALID_VOICE_GENDERS:
+        errors.append(
+            f"'voice_gender' must be one of {', '.join(VALID_VOICE_GENDERS)}, "
+            f"got {voice_gender!r}."
+        )
+        voice_gender = str(DEFAULTS["voice_gender"])
+
     tts_provider = _require_str(raw, "tts_provider", errors).lower()
     if tts_provider not in VALID_TTS_PROVIDERS:
         errors.append(
@@ -458,6 +473,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         auto_pronounce_card=_require_bool(raw, "auto_pronounce_card", errors),
         auto_pronounce_answer=_require_bool(raw, "auto_pronounce_answer", errors),
         card_speech_scope=card_speech_scope,
+        voice_gender=voice_gender,
         front_speech_language=_normalise_language(
             _require_str(raw, "front_speech_language", errors),
             "front_speech_language",

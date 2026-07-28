@@ -319,6 +319,10 @@ _LANGUAGE_OPTIONS = (
     "back_speech_language",
 )
 
+#: Gear settings that are a fixed choice rather than a language. Same string
+#: handling as above; parse_config is what rejects a value off the list.
+_CHOICE_OPTIONS = ("voice_gender",)
+
 ANSWER_DIVIDER = "<hr id=answer>"
 
 # Deliberately not anki.utils.strip_html: that call needs Anki's Rust i18n
@@ -703,7 +707,7 @@ def _set_option(raw_payload: str) -> None:
     # string for a toggle must not be able to store one.
     if key in _TOGGLEABLE_OPTIONS:
         value: Any = bool(raw_value)
-    elif key in _LANGUAGE_OPTIONS:
+    elif key in _LANGUAGE_OPTIONS or key in _CHOICE_OPTIONS:
         if not isinstance(raw_value, str):
             logger.warning("Refusing non-text value for %r from the webview", key)
             return

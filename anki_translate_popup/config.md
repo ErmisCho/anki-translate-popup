@@ -436,6 +436,25 @@ not installed, the add-on falls back to `speech_language` matching.
 
 **Default:** `""` (empty)
 
+### `voice_gender`
+
+Which voice to prefer when a language offers more than one: `female`, `male`,
+or `any`.
+
+The browser speech API does not report a voice's gender, so this is read from
+the voice's name — Google's say so outright, Microsoft's are first names the
+add-on knows a table of. A voice it cannot place counts as neither, and simply
+loses the tie-break.
+
+It is a preference, not a guarantee. A language with only one installed voice
+speaks with that voice whichever gender it is, and online audio has a single
+voice per language that cannot be chosen at all. To pin one exact voice, use
+`preferred_voice`, which outranks this.
+
+Also on the gear menu, as *Prefer a voice*.
+
+**Default:** `"female"`
+
 ### `speech_rate`
 
 Speaking speed. `1.0` is normal, `0.5` is half speed, `2.0` is double.

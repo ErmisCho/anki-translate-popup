@@ -356,7 +356,7 @@ Set up a deck with German cards, then work through these.
 - [ ] **Click outside** → popup closes
 - [ ] Click **×** → popup closes
 - [ ] Hover the speaker and clipboard icons → tooltips read *Pronounce* and *Copy*
-- [ ] Click the **gear** → every switch and both voice rows are visible at once, no scrolling, ticks matching the current config
+- [ ] Click the **gear** → every switch and all three voice rows are visible at once, no scrolling, ticks matching the current config
 - [ ] Flip a toggle → tick changes, menu stays open, setting persists after reopening the popup
 - [ ] Flip one in the gear, then check Tools → Add-ons → Config → the same value is there
 - [ ] Escape with the gear menu open → closes the menu only; a second Escape closes the popup
@@ -466,6 +466,15 @@ Set up a deck with German cards, then work through these.
 - [ ] Set `speech_language: "de-AT"` with a **DE → EN** pair → still the Austrian voice, not a bare `de` one
 - [ ] Source **auto**, select German, translate, then Pronounce → the detected language picks the voice
 - [ ] Change the pair in the header, then press Pronounce immediately → the new language is used, not the old
+- [ ] Source **auto**: select a German word, then an English one → each is spoken in its own language, not both in the first
+- [ ] Source **auto**: the header reads **AUTO·DE** after a German lookup, and **AUTO** again on the next selection
+- [ ] Source **auto** with `auto_translate: false` → nothing is sent merely to detect a language; speech uses `speech_language`
+- [ ] Press Escape while the status reads *Detecting language…* → nothing is spoken when the translation lands
+- [ ] Select the same word twice → the **same voice** both times, never male one time and female the next
+- [ ] Gear → **Prefer a voice** → *Male* → a male voice is used for a language that has one
+- [ ] Gear → **Prefer a voice** → *Female* → back to a female voice
+- [ ] A language with only one installed voice → still speaks, whichever gender that voice is
+- [ ] Set `preferred_voice` to an installed voice → it wins over the gender preference
 - [ ] Set `tts_provider: "system"` with no German voice → clear message, nothing sent anywhere
 - [ ] Set `tts_provider: "system"`, turn off Wi-Fi → still works if a voice exists
 - [ ] Set `tts_provider: "google_unofficial"`, turn off Wi-Fi → clear *could not reach* message

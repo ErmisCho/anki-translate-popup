@@ -353,6 +353,31 @@ class PickerLanguagesTest(unittest.TestCase):
         self.assertEqual(config.picker_languages, ("de", "en"))
 
 
+class VoiceGenderTest(unittest.TestCase):
+    def test_default_is_female(self):
+        self.assertEqual(parse_config(DEFAULTS).voice_gender, "female")
+
+    def test_every_documented_value_is_accepted(self):
+        for value in ("female", "male", "any"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    parse_config(config_with(voice_gender=value)).voice_gender, value
+                )
+
+    def test_case_is_ignored(self):
+        self.assertEqual(parse_config(config_with(voice_gender="FEMALE")).voice_gender, "female")
+
+    def test_unknown_value_is_rejected_by_name(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config(config_with(voice_gender="neutral"))
+        self.assertIn("voice_gender", str(ctx.exception))
+
+    def test_reaches_the_webview(self):
+        """The page picks the voice, so the preference has to get there."""
+        payload = parse_config(config_with(voice_gender="male")).for_webview()
+        self.assertEqual(payload["voiceGender"], "male")
+
+
 class WebviewConfigTest(unittest.TestCase):
     def test_api_key_is_never_exposed_to_the_webview(self):
         config = parse_config(config_with(api_key="super-secret-key:fx"))
