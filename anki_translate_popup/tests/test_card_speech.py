@@ -674,6 +674,44 @@ class GearOptionAppliesNowTest(unittest.TestCase):
         shown.assert_not_called()
 
 
+class SettingsPersistTest(unittest.TestCase):
+    """A gear change must survive a restart, which means reaching meta.json."""
+
+    def manager(self, store):
+        """Stands in for AddonManager: getConfig merges defaults over stored."""
+        manager = mock.Mock()
+        manager.getConfig.side_effect = lambda module: {**DEFAULTS, **store}
+        manager.writeConfig.side_effect = lambda module, conf: store.update(conf)
+        return manager
+
+    def set_option(self, store, key, value):
+        mw = mock.Mock(addonManager=self.manager(store), state="deckBrowser")
+        with mock.patch.object(addon, "mw", mw), mock.patch.object(
+            addon, "_INSIDE_ANKI", True
+        ), mock.patch.object(addon, "_apply_config_change"):
+            addon._set_option(json.dumps({"key": key, "value": value}))
+
+    def test_disabling_a_toggle_is_written_not_just_shown(self):
+        store = {}
+        self.set_option(store, "auto_pronounce", False)
+        self.assertIs(store["auto_pronounce"], False)
+
+    def test_it_is_still_off_when_the_config_is_read_again(self):
+        """Reading back is what a restart does, and where the report pointed."""
+        store = {}
+        self.set_option(store, "auto_pronounce_card", False)
+        reloaded = {**DEFAULTS, **store}
+        self.assertIs(reloaded["auto_pronounce_card"], False)
+
+    def test_one_change_does_not_disturb_another(self):
+        store = {}
+        self.set_option(store, "auto_pronounce", False)
+        self.set_option(store, "show_examples", False)
+        self.assertIs(store["auto_pronounce"], False)
+        self.assertIs(store["show_examples"], False)
+        self.assertIs(store["auto_translate"], True)
+
+
 class PopupClosesOnANewSideTest(unittest.TestCase):
     """Only a card side appearing may take the popup away."""
 

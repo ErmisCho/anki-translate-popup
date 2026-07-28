@@ -882,6 +882,7 @@ def _set_option(raw_payload: str) -> None:
         return
 
     raw = _raw_config()
+    previous = raw.get(key)
     raw[key] = value
     try:
         parse_config(raw)
@@ -891,7 +892,12 @@ def _set_option(raw_payload: str) -> None:
 
     mw.addonManager.writeConfig(__name__, raw)
     _apply_config_change()
-    logger.debug("Option %s set to %s", key, value)
+    # INFO, not debug: settings change a handful of times a session, and "it
+    # was back after a restart" cannot be answered without a record of what was
+    # written and when. Anki's config dialog writes the whole config when it
+    # saves, so a dialog left open can undo a gear change with nothing to show
+    # for it - this is the line that would say so.
+    logger.info("Option %s changed from %r to %r", key, previous, value)
 
     if key in _CARD_SPEECH_OPTIONS:
         _apply_card_speech_toggle(key, bool(value))
@@ -1239,7 +1245,7 @@ def _set_languages(raw_payload: str, deck_id: Optional[int] = None) -> None:
     # writeConfig only writes meta.json, so the re-push is ours to make.
     mw.addonManager.writeConfig(__name__, raw)
     _apply_config_change()
-    logger.debug(
+    logger.info(
         "Language pair set to %s -> %s%s",
         source,
         target,
