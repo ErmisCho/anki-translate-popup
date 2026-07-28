@@ -310,6 +310,16 @@ def _synthesize_blocking(text: str, lang: str = "") -> str:
         logger.debug("Speech cache hit (%s chars)", len(text))
         return str(path)
 
+    # The same undocumented endpoint the translation backend uses, so the same
+    # switch governs it. Checked after the cache: a clip already on disk plays
+    # without reaching Google, and the promise made is about traffic.
+    if not config.enable_google_unofficial:
+        raise ConfigurationError(
+            "Online speech uses the same undocumented Google endpoint as the "
+            "translation backend, and 'enable_google_unofficial' is false. Set "
+            "it to true, or install a system voice for this language."
+        )
+
     logger.debug("Synthesising %s chars via %s", len(text), engine.name)
     audio = engine.synthesize(text, lang)
 
@@ -350,7 +360,7 @@ _LANGUAGE_OPTIONS = (
 
 #: Gear settings that are a fixed choice rather than a language. Same string
 #: handling as above; parse_config is what rejects a value off the list.
-_CHOICE_OPTIONS = ("voice_gender",)
+_CHOICE_OPTIONS = ("voice_gender", "tts_provider")
 
 ANSWER_DIVIDER = "<hr id=answer>"
 

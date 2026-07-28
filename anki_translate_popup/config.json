@@ -28,7 +28,7 @@
     "back_speech_language": "auto",
     "expand_abbreviations": true,
     "show_examples": true,
-    "tts_provider": "auto",
+    "tts_provider": "google_unofficial",
     "speech_language": "de-DE",
     "preferred_voice": "",
     "speech_rate": 0.9,

@@ -122,12 +122,19 @@ Examples: `http://localhost:5000`, `https://libretranslate.com`.
 
 ### `enable_google_unofficial`
 
-Safety switch for the unofficial Google provider. Set it to `false` to hard-
-disable that backend — selecting it then produces a clear error instead of
-sending anything. Useful if you want to guarantee no traffic ever reaches an
-undocumented endpoint.
+Safety switch for the unofficial Google endpoint, covering **both** translation
+and audio — they are the same endpoint, so one switch governs both. Set it to
+`false` and selecting that translation backend produces a clear error instead
+of sending anything, and online speech refuses to fetch new audio.
 
-**Default:** `true` (because `google_unofficial` is the default provider)
+Clips already in `user_files/tts/` still play: the guarantee is that no traffic
+reaches the endpoint, and a file on disk generates none. Delete that folder to
+be rid of them.
+
+Note what this leaves you with, given the defaults: no translation and no new
+audio at all until you pick a different provider or install a system voice.
+
+**Default:** `true` (because `google_unofficial` is the default for both)
 
 ### `request_timeout_seconds`
 
@@ -330,20 +337,39 @@ Where pronunciation audio comes from.
 | `system` | System voices only. Shows an error when none matches — nothing ever leaves your computer. |
 | `google_unofficial` | Always fetch audio online, even if a system voice exists. |
 
-**Why `auto` is the default:** Windows 11 has two unrelated kinds of voice.
-Classic SAPI5/OneCore voices are visible to every application. Narrator
-**"natural voices"** — the ones Settings pushes hardest — are reserved for
-Narrator and are *never* registered as voice tokens, so Anki's webview cannot
-see them. You can install German speech, have Windows list it, and still have
-no German voice available here. `auto` makes pronunciation work anyway.
+**Why `google_unofficial` is the default:** it is the only setting under which
+everything sounds the same. A card cannot use a system voice at all — Chromium
+only lets the browser speak inside a user gesture, and a card appearing is not
+one — so card audio is always online. Under `auto` a selection would find an
+installed voice and a card would not, and the same word came out in two
+different voices depending on how you asked for it. The online voice is also
+the better one: the classic SAPI voices Anki can see are markedly more robotic.
 
-When online audio is used, the popup says **Spoken by Google (online voice)**,
+There is a real cost, and it is the whole cost of this add-on's default
+posture: **nothing is spoken offline any more**, and every pronunciation
+reaches the same undocumented Google endpoint the translation backend uses,
+which can rate-limit or break without notice. `voice_gender` and
+`preferred_voice` also stop applying, because that endpoint offers one voice
+per language.
+
+Windows makes `system` less attractive than it sounds. Classic SAPI5/OneCore
+voices are visible to every application, but Narrator **"natural voices"** —
+the ones Settings pushes hardest — are reserved for Narrator and are *never*
+registered as voice tokens. You can install German speech, have Windows list
+it, and still have no German voice here.
+
+When online audio is used the popup says **Spoken by Google (online voice)**,
 so you always know the text left your computer. Audio is cached in
-`user_files/tts/`, so repeating a card makes no further requests.
+`user_files/tts/`, so repeating a card makes no further requests, and
+`enable_google_unofficial: false` blocks any new ones outright.
 
-Set this to `system` if you want pronunciation to stay strictly offline.
+Set this to `system` if you want pronunciation to stay strictly offline,
+accepting that card auto-pronounce then stops entirely. `auto` sits between the
+two: a system voice for selections when one exists, online for everything else.
 
-**Default:** `auto`
+Also on the gear menu, as *Voice source*.
+
+**Default:** `google_unofficial`
 
 ### `cache_max_entries`
 

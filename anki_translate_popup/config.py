@@ -66,7 +66,7 @@ DEFAULTS: Dict[str, Any] = {
     "back_speech_language": "auto",
     "expand_abbreviations": True,
     "show_examples": True,
-    "tts_provider": "auto",
+    "tts_provider": "google_unofficial",
     "speech_language": "de-DE",
     "preferred_voice": "",
     "speech_rate": 0.9,

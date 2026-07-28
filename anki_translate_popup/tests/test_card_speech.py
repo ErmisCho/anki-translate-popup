@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import anki_translate_popup as addon
@@ -446,6 +448,60 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
             addon.prepare_speech_text("the gen on that", config, "en"),
             "the gen on that",
         )
+
+
+class OnlineSpeechGateTest(unittest.TestCase):
+    """enable_google_unofficial governs the audio endpoint too, not just text.
+
+    config.md promises it guarantees no traffic ever reaches an undocumented
+    endpoint, and online speech uses the very same one.
+    """
+
+    def configure(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return mock.patch.object(addon, "_raw_config", return_value=raw)
+
+    def synthesize(self, tmp, **overrides):
+        """Run the real _synthesize_blocking with a stubbed engine and cache dir."""
+        engine = mock.Mock()
+        engine.name = "google_unofficial"
+        engine.synthesize.return_value = b"ID3audio"
+        with self.configure(**overrides), mock.patch.object(
+            addon, "GoogleTextToSpeech", return_value=engine
+        ), mock.patch.object(addon, "_TTS_CACHE_DIR", Path(tmp)):
+            try:
+                path = addon._synthesize_blocking("das Haus", "de-DE")
+            except ConfigurationError as exc:
+                return engine, None, exc
+            return engine, path, None
+
+    def test_disabled_never_reaches_the_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, path, error = self.synthesize(tmp, enable_google_unofficial=False)
+        self.assertIsNone(path)
+        self.assertIsNotNone(error)
+        self.assertIn("enable_google_unofficial", str(error))
+        engine.synthesize.assert_not_called()
+
+    def test_enabled_synthesises_as_usual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, path, error = self.synthesize(tmp, enable_google_unofficial=True)
+        self.assertIsNone(error)
+        self.assertTrue(path)
+        engine.synthesize.assert_called_once()
+
+    def test_audio_already_on_disk_still_plays(self):
+        """A cached clip sends nothing, and the switch is about traffic."""
+        with tempfile.TemporaryDirectory() as tmp:
+            engine, path, _ = self.synthesize(tmp, enable_google_unofficial=True)
+            engine.synthesize.reset_mock()
+            with self.configure(enable_google_unofficial=False), mock.patch.object(
+                addon, "GoogleTextToSpeech", return_value=engine
+            ), mock.patch.object(addon, "_TTS_CACHE_DIR", Path(tmp)):
+                again = addon._synthesize_blocking("das Haus", "de-DE")
+        self.assertEqual(again, path)
+        engine.synthesize.assert_not_called()
 
 
 class DetectionNeededTest(unittest.TestCase):

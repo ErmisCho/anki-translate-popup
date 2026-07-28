@@ -171,8 +171,10 @@ No text leaves your machine.
 ### Privacy summary
 
 With the default `auto_translate: true`, selected text is transmitted as soon
-as you select it. `auto_pronounce` may also fetch online audio when no matching
-system voice exists. Turn both off for click-to-act behavior. Copy is always
+as you select it. `auto_pronounce` fetches online audio: with the default
+`tts_provider: google_unofficial`, **nothing is spoken offline**, because a
+card cannot use a system voice at all and a split between the two produced two
+different voices for the same word. Turn both off for click-to-act behavior. Copy is always
 local. DeepL and LibreTranslate probe their language-list API when the reviewer
 opens; this sends no card text, though DeepL authenticates the probe with your
 API key.
@@ -468,7 +470,11 @@ Set up a deck with German cards, then work through these.
 - [ ] `source_language: "auto"` with no network → the card still speaks, using `speech_language`
 - [ ] Pin `front_speech_language` to a language → no detection happens at all
 - [ ] Set `tts_provider: "system"` → card auto-pronounce stops (needs a user gesture the browser will not grant)
-- [ ] Default (`tts_provider: "auto"`), **no German voice installed** → German audio is heard, status says *Spoken by Google (online voice)*
+- [ ] Default (`tts_provider: "google_unofficial"`) → every pronunciation says *Spoken by Google (online voice)*, selections and cards alike
+- [ ] A selection and a card of the same word → the **same voice** for both
+- [ ] Gear → **Voice source** → *System only* → card auto-pronounce stops, selections use an installed voice
+- [ ] Set `enable_google_unofficial: false` → no new audio is fetched, with a message naming the switch
+- [ ] Same text again after disabling it → the clip already in `user_files/tts/` still plays
 - [ ] Press Pronounce again on the same text → instant (served from `user_files/tts/`)
 - [ ] With a **German system voice installed** → uses it, status names the voice, nothing goes online
 - [ ] Press Pronounce **twice quickly** → the first stops, no overlap
@@ -515,11 +521,14 @@ Set up a deck with German cards, then work through these.
    and friends) are reserved for Narrator and are never registered as voice
    tokens. You can install German speech, see it listed in Settings, and still
    have no German voice available here. This is a Windows limitation, not an
-   add-on bug — and it is exactly why `tts_provider` defaults to `auto`, which
-   goes online rather than dead-ending. Use the `Add-WindowsCapability` command
-   in `config.md` to install a classic voice if you want offline speech.
-2. **Online TTS is unofficial.** The same caveats as the Google translation
-   provider apply: undocumented endpoint, no service agreement, may break or
+   add-on bug — and it is one reason `tts_provider` defaults to
+   `google_unofficial` rather than to a system voice that may not exist. Use the
+   `Add-WindowsCapability` command in `config.md` to install a classic voice if
+   you want `system` or `auto` to be worth choosing.
+2. **Online TTS is unofficial, and now the default.** Every pronunciation
+   goes through it unless you change `tts_provider`, so the caveats are no
+   longer a fallback's caveats: undocumented endpoint, no service agreement,
+   may break or
    rate-limit. Audio is cached in `user_files/tts/`; `tts_cache_max_mb` limits
    its size.
 3. **Voice enumeration is slow to start.** System voices appear 3–4 seconds

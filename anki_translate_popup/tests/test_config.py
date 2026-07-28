@@ -54,6 +54,10 @@ class ParseDefaultsTest(unittest.TestCase):
         self.assertEqual(DEFAULTS["cache_max_entries"], 5000)
         self.assertEqual(DEFAULTS["tts_cache_max_mb"], 100)
         self.assertTrue(DEFAULTS["enable_in_previewer"])
+        # Online by default: a system voice is the robotic one, and cards
+        # cannot use it at all without a user gesture.
+        self.assertEqual(DEFAULTS["tts_provider"], "google_unofficial")
+        self.assertEqual(DEFAULTS["voice_gender"], "female")
         self.assertEqual(DEFAULTS["lookup_shortcut"], "Ctrl+Shift+T")
         self.assertEqual(
             DEFAULTS["picker_languages"],

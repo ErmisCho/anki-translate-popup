@@ -22,6 +22,7 @@
         sourceLanguage: "de",
         targetLanguage: "en",
         speechLanguage: "de-DE",
+        ttsProvider: "google_unofficial",
         voiceGender: "female",
         preferredVoice: "",
         speechRate: 0.9,
@@ -461,6 +462,17 @@
     var VOICE_ITEMS = [
         { key: "front_speech_language", field: "frontSpeechLanguage", label: "Voice for the front" },
         { key: "back_speech_language", field: "backSpeechLanguage", label: "Voice for the back" },
+        {
+            key: "tts_provider",
+            field: "ttsProvider",
+            label: "Voice source",
+            options: ["google_unofficial", "auto", "system"],
+            names: {
+                google_unofficial: "Online",
+                auto: "System, else online",
+                system: "System only",
+            },
+        },
         {
             key: "voice_gender",
             field: "voiceGender",
@@ -1260,7 +1272,7 @@
         // card, which the page is otherwise unaware of.
         stopAllSpeech();
 
-        var mode = config.ttsProvider || "auto";
+        var mode = config.ttsProvider || DEFAULTS.ttsProvider;
         if (mode === "google_unofficial") {
             speakOnline(text, lang);
             return;
