@@ -34,6 +34,7 @@
     var el = {};
     var selectedText = "";
     var lastTranslation = "";
+    var lastRect = null;
     var requestCounter = 0;
     var pendingRequestId = 0;
     var pendingSpeechId = 0;
@@ -111,9 +112,9 @@
         "  </div>",
         '  <button type="button" class="atp-close" title="Close (Esc)" aria-label="Close">&times;</button>',
         "</div>",
-        '<div class="atp-source"></div>',
         '<div class="atp-result" hidden></div>',
         '<div class="atp-status" hidden></div>',
+        '<div class="atp-examples" hidden></div>',
     ].join("");
 
     function build() {
@@ -128,9 +129,9 @@
         el = {
             langs: root.querySelector(".atp-langs"),
             close: root.querySelector(".atp-close"),
-            source: root.querySelector(".atp-source"),
             result: root.querySelector(".atp-result"),
             status: root.querySelector(".atp-status"),
+            examples: root.querySelector(".atp-examples"),
             translate: root.querySelector(".atp-translate"),
             pronounce: root.querySelector(".atp-pronounce"),
             copy: root.querySelector(".atp-copy"),
@@ -202,6 +203,47 @@
         el.langs.textContent = String(source) + " → " + String(target);
     }
 
+    /**
+     * Render usage examples.
+     *
+     * Built with createElement/textContent rather than markup: these sentences
+     * come from a third-party corpus, and this keeps them un-parseable as HTML.
+     */
+    function setExamples(list) {
+        el.examples.textContent = "";
+        if (!list || !list.length) {
+            el.examples.hidden = true;
+            return;
+        }
+
+        var heading = document.createElement("div");
+        heading.className = "atp-examples-title";
+        heading.textContent = "Examples · Tatoeba"; // inline CC-BY attribution
+        el.examples.appendChild(heading);
+
+        list.forEach(function (example) {
+            if (!example || !example.text) {
+                return;
+            }
+            var item = document.createElement("div");
+            item.className = "atp-example";
+
+            var original = document.createElement("div");
+            original.className = "atp-example-src";
+            original.textContent = example.text;
+            item.appendChild(original);
+
+            if (example.translation) {
+                var translated = document.createElement("div");
+                translated.className = "atp-example-tr";
+                translated.textContent = example.translation;
+                item.appendChild(translated);
+            }
+            el.examples.appendChild(item);
+        });
+        el.examples.hidden = false;
+    }
+
     function setBusy(busy) {
         el.translate.disabled = busy;
         popup.classList.toggle("atp-busy", !!busy);
@@ -219,8 +261,8 @@
         pendingRequestId = 0;
         setResult("");
         setStatus("");
+        setExamples(null);
         setBusy(false);
-        el.source.textContent = text; // escaped by assignment
         setLanguages(config.sourceLanguage, config.targetLanguage);
         clearTimeout(copyResetTimer);
         el.copy.classList.remove("atp-copied");
@@ -230,6 +272,15 @@
         popup.classList.add("atp-visible");
         position(rect);
         log("shown for", text);
+
+        // The popup no longer echoes the selection back - it is already
+        // highlighted on the card - so it opens straight into the answer.
+        if (config.autoTranslate) {
+            requestTranslation();
+        }
+        if (config.autoPronounce) {
+            pronounce();
+        }
     }
 
     function hide() {
@@ -246,8 +297,16 @@
         return !!popup && !popup.hidden;
     }
 
+    /** Re-anchor to the remembered selection after the content changed size. */
+    function reposition() {
+        if (isOpen() && lastRect) {
+            position(lastRect);
+        }
+    }
+
     /** Place the popup near `rect`, fully inside the visible reviewer area. */
     function position(rect) {
+        lastRect = rect;
         var margin = 8;
         var box = popup.getBoundingClientRect();
         var viewportWidth = document.documentElement.clientWidth;
@@ -324,10 +383,15 @@
             setStatus(notes.join(" · "), "info");
             setLanguages(payload.sourceLang, payload.targetLang);
             setResult(payload.text);
+            setExamples(payload.examples);
         } else {
             setResult("");
+            setExamples(null);
             setStatus(payload.error || "Translation failed.", "error");
         }
+        // The popup was placed while empty; it is much taller now, so it has to
+        // be re-anchored or a selection near the bottom pushes it off-screen.
+        reposition();
     }
 
     /** Called from Python when the user edits the add-on configuration. */

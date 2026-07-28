@@ -73,6 +73,12 @@ class FallbackTestBase(unittest.TestCase):
         quiet.start()
         self.addCleanup(quiet.stop)
 
+        # _translate_blocking also looks up examples; stub it so these tests
+        # stay offline. ExamplesInPayloadTest covers the real wiring.
+        no_examples = mock.patch.object(addon, "_fetch_examples", return_value=[])
+        no_examples.start()
+        self.addCleanup(no_examples.stop)
+
     def _reset_cache(self) -> None:
         addon._cache = None
         addon._cache_lifetime_days = None
@@ -222,6 +228,53 @@ class LoggingWarningTest(FallbackTestBase):
         addon.logger.warning.assert_called_once()
         message = addon.logger.warning.call_args[0]
         self.assertIn("fallback", message[0])
+
+
+class ExamplesInPayloadTest(FallbackTestBase):
+    """The real _fetch_examples wiring, with only the HTTP layer stubbed."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        mock.patch.stopall()  # drop the base class's _fetch_examples stub
+        self.calls = []
+        quiet = mock.patch.object(addon.logger, "warning")
+        quiet.start()
+        self.addCleanup(quiet.stop)
+
+    def test_examples_reach_the_payload(self):
+        from anki_translate_popup.examples import Example
+
+        raw = self.configure(translation_provider="deepl", api_key="k:fx")
+        with mock.patch.object(
+            addon.TatoebaExamples,
+            "fetch",
+            return_value=[Example(text="Das Haus ist alt.", translation="The house is old.")],
+        ):
+            payload = self.run_translation(raw, {"deepl": "the house"})
+
+        self.assertEqual(
+            payload["examples"],
+            [{"text": "Das Haus ist alt.", "translation": "The house is old."}],
+        )
+
+    def test_examples_disabled_makes_no_lookup(self):
+        raw = self.configure(
+            translation_provider="deepl", api_key="k:fx", show_examples=False
+        )
+        with mock.patch.object(addon.TatoebaExamples, "fetch") as fetch:
+            payload = self.run_translation(raw, {"deepl": "the house"})
+        fetch.assert_not_called()
+        self.assertEqual(payload["examples"], [])
+
+    def test_example_failure_never_breaks_the_translation(self):
+        raw = self.configure(translation_provider="deepl", api_key="k:fx")
+        with mock.patch.object(
+            addon.TatoebaExamples, "fetch", side_effect=RuntimeError("corpus down")
+        ):
+            payload = self.run_translation(raw, {"deepl": "the house"})
+        self.assertEqual(payload["text"], "the house")
+        self.assertEqual(payload["examples"], [])
+        addon.logger.warning.assert_called()
 
 
 class FallbackConfigTest(unittest.TestCase):

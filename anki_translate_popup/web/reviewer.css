@@ -221,22 +221,9 @@
 
 /* -- body -- */
 
-.atp-popup .atp-source {
-    /* The selection can be a long sentence or one unbroken compound noun. */
-    display: block !important;
-    margin: 0 !important;
-    padding: 0 2px !important;
-    background: transparent !important;
-    overflow-wrap: anywhere !important;
-    max-height: 5.8em !important;
-    overflow-y: auto !important;
-    font-weight: 600 !important;
-    user-select: text !important;
-}
-
 .atp-popup .atp-result {
     display: block !important;
-    margin: 7px 0 0 !important;
+    margin: 0 !important;
     padding: 6px 9px !important;
     background: var(--atp-result-bg) !important;
     border: 0 !important;
@@ -258,8 +245,50 @@
 }
 
 .atp-popup .atp-status[hidden],
-.atp-popup .atp-result[hidden] {
+.atp-popup .atp-result[hidden],
+.atp-popup .atp-examples[hidden] {
     display: none !important;
+}
+
+/* -- usage examples -- */
+
+.atp-popup .atp-examples {
+    display: block !important;
+    margin: 9px 0 0 !important;
+    padding: 8px 2px 0 !important;
+    border-top: 1px solid var(--atp-border) !important;
+    max-height: 13em !important;
+    overflow-y: auto !important;
+}
+
+.atp-popup .atp-examples-title {
+    margin: 0 0 5px !important;
+    font-size: 0.72em !important;
+    font-weight: 600 !important;
+    color: var(--atp-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+}
+
+.atp-popup .atp-example {
+    margin: 0 0 7px !important;
+    padding: 0 !important;
+    user-select: text !important;
+}
+
+.atp-popup .atp-example:last-child {
+    margin-bottom: 0 !important;
+}
+
+.atp-popup .atp-example-src {
+    font-size: 0.88em !important;
+    overflow-wrap: anywhere !important;
+}
+
+.atp-popup .atp-example-tr {
+    font-size: 0.82em !important;
+    color: var(--atp-muted) !important;
+    overflow-wrap: anywhere !important;
 }
 
 .atp-popup .atp-status--info {

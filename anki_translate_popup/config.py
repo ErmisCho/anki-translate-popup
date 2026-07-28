@@ -39,6 +39,9 @@ DEFAULTS: Dict[str, Any] = {
     "request_timeout_seconds": 10,
     "cache_enabled": True,
     "cache_lifetime_days": 30,
+    "auto_translate": True,
+    "auto_pronounce": True,
+    "show_examples": True,
     "tts_provider": "auto",
     "speech_language": "de-DE",
     "preferred_voice": "",
@@ -60,6 +63,9 @@ class AddonConfig:
     request_timeout_seconds: float
     cache_enabled: bool
     cache_lifetime_days: int
+    auto_translate: bool
+    auto_pronounce: bool
+    show_examples: bool
     tts_provider: str
     speech_language: str
     preferred_voice: str
@@ -80,6 +86,8 @@ class AddonConfig:
         return {
             "sourceLanguage": self.source_language,
             "targetLanguage": self.target_language,
+            "autoTranslate": self.auto_translate,
+            "autoPronounce": self.auto_pronounce,
             "ttsProvider": self.tts_provider,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
@@ -223,6 +231,9 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         ),
         cache_enabled=_require_bool(raw, "cache_enabled", errors),
         cache_lifetime_days=lifetime,
+        auto_translate=_require_bool(raw, "auto_translate", errors),
+        auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
+        show_examples=_require_bool(raw, "show_examples", errors),
         tts_provider=tts_provider,
         speech_language=speech_language,
         preferred_voice=_require_str(raw, "preferred_voice", errors),

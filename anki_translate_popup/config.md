@@ -1,8 +1,12 @@
 ## Translate & Pronounce Popup — Configuration
 
-Select text on a card while reviewing to open a popup with a **Translate**
-button, a **speaker** icon to pronounce, and a **clipboard** icon to copy.
-Nothing is sent anywhere until you press Translate or the speaker.
+Select text on a card while reviewing and a popup shows the translation, plus
+real example sentences using the word. The header has a **translate**,
+**speaker** and **clipboard** icon.
+
+By default the lookup happens automatically on selection, which means the
+selected text is transmitted as soon as you select it — see `auto_translate`
+and `auto_pronounce` below to turn that off.
 
 Changes take effect immediately — you do not need to restart Anki.
 
@@ -121,6 +125,41 @@ How long a cached translation stays valid. Use `0` to keep entries forever.
 
 **Default:** `30`
 
+### `auto_translate`
+
+Translate as soon as you select text, with no click.
+
+**This changes when your text is transmitted.** With `auto_translate` on, the
+selection is sent to your translation provider the moment you release the
+mouse. Set it to `false` to go back to translating only when you press the
+translate button.
+
+**Default:** `true`
+
+### `auto_pronounce`
+
+Speak the selection as soon as you select it. Combined with `tts_provider`
+resolving to online audio, this also transmits the selection on every
+selection. Set to `false` if you would rather press the speaker yourself.
+
+**Default:** `true`
+
+### `show_examples`
+
+Show real sentences using the selected word, with translations, so you can see
+how it is actually used.
+
+Examples come from [Tatoeba](https://tatoeba.org), an open corpus of
+human-translated sentences (CC-BY 2.0 FR). They are looked up only for a word
+or short phrase — up to 3 words — because searching a corpus for a whole
+sentence returns nothing useful.
+
+Independent of your translation provider: no translation provider still offers
+usage examples. If Tatoeba is unreachable or has no match, the translation is
+shown on its own.
+
+**Default:** `true`
+
 ### `tts_provider`
 
 Where pronunciation audio comes from.
@@ -205,11 +244,15 @@ Then restart Anki. Adding the language in Settings, or adding a Narrator
 
 ### Privacy
 
-Selected text is transmitted when you press **Translate**, and — if
-`tts_provider` resolves to online audio — when you press **Pronounce**. The
-popup says *Spoken by Google (online voice)* whenever that happens. Selecting
-text and pressing **Copy** never leave your computer, and neither does
-Pronounce when a system voice is used or `tts_provider` is `system`.
+With the shipped defaults, selecting text transmits it immediately —
+`auto_translate` sends it to your translation provider, `auto_pronounce` fetches
+audio, and `show_examples` queries Tatoeba. Set those three to `false` for a
+click-to-act popup that sends nothing until you ask it to.
+
+The popup always says *Spoken by Google (online voice)* when audio came from
+the network, and labels a fallback provider when one answered. **Copy** is
+always local, and so is Pronounce when a system voice is used or
+`tts_provider` is `system`.
 
 * **DeepL** — text is sent over HTTPS to `api.deepl.com` (or
   `api-free.deepl.com` for free keys). DeepL states that API text is not used

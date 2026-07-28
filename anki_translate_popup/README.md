@@ -1,10 +1,15 @@
 # Translate & Pronounce Popup
 
 An Anki Desktop add-on for Windows 11. Select a word, phrase, or sentence while
-reviewing and a compact popup appears next to the selection with a **Translate**
-button plus two icon buttons — a speaker to pronounce and a clipboard to copy.
-Both icons carry tooltips and ARIA labels, and the clipboard turns into a tick
-for a moment after a successful copy.
+reviewing and a compact popup appears next to it, already showing the
+translation — plus real example sentences so you can see the word in use.
+
+The header carries three icon buttons (translate, speaker, clipboard) and a
+close button. All have tooltips and ARIA labels.
+
+By default the lookup runs **automatically on selection**, which means the
+selected text is transmitted as soon as you select it. `auto_translate` and
+`auto_pronounce` turn that off if you would rather click.
 
 The entire interface is in English.
 
@@ -188,6 +193,7 @@ anki_translate_popup/
 ├── manifest.json        Add-on metadata
 ├── cache.py             SQLite translation cache with TTL
 ├── tts.py               Online speech, for languages with no usable voice
+├── examples.py          Usage examples from the Tatoeba corpus
 ├── translation/
 │   ├── base.py          Translator ABC, error hierarchy, shared HTTP
 │   ├── deepl.py         DeepL API v2
@@ -307,6 +313,7 @@ Coverage:
 | `test_config.py` | Defaults, unknown provider, language-code normalisation, `auto` handling, type errors, range bounds, `true` not accepted as a number, all errors reported at once, API key never reaching the webview |
 | `test_cache.py` | Key stability and collision resistance, read/write, reopen, overwrite, provider scoping, German/emoji/CJK round-trips, TTL boundaries, `0` = never expire, purge, clear, corrupt-database resilience, connection-close regression |
 | `test_translation.py` | DeepL/LibreTranslate/Google parsing, free-vs-pro endpoint, auto-detection, malformed responses, HTTP 401/403/429/456/5xx mapping, timeouts, connection/SSL/DNS failures, timeout propagation, Unicode, provider gating, `</script>` escaping, U+2028/U+2029 escaping |
+| `test_examples.py` | ISO 639-1→3 mapping, word/phrase-vs-sentence gating, limit, entries with no matching translation, unsupported and `auto` languages skipping the request entirely, HTTP errors, malformed shapes, Unicode, markup returned verbatim |
 | `test_tts.py` | Word-boundary chunking, hard-splitting overlong words, multi-segment joining, MP3/ID3 sniffing, HTML-error-page rejection, empty body, rate limit, HTTP errors, timeouts, connection failure, Unicode |
 | `test_fallback.py` | Fallback on network/quota/missing-key failures, no fallback when the primary succeeds, both-failed message naming both causes, fallback results cached under the fallback provider, no cache leakage between providers, fallback logged not silent, config validation |
 
@@ -358,7 +365,14 @@ Set up a deck with German cards, then work through these.
 
 ### Translation
 
-- [ ] **Straight after install, no config** → translation appears, languages shown as `de → en`
+- [ ] **Straight after install, no config** → selecting a word translates it with no click
+- [ ] Select a single word → up to 3 example sentences appear under *Examples · Tatoeba*
+- [ ] Select a **whole sentence** → translation appears, no examples (expected: too long to look up)
+- [ ] Select a word with no corpus match → translation still appears, no examples
+- [ ] Set `show_examples: false` → no examples section, no Tatoeba request
+- [ ] Set `auto_translate: false` → nothing is sent until the translate icon is pressed
+- [ ] Set `auto_pronounce: false` → no audio until the speaker is pressed
+- [ ] Select text near the **bottom of the window** → popup grows with examples and flips above the selection rather than overflowing
 - [ ] **Repeat the same selection** → returns instantly, status shows *From cache*
 - [ ] Switch to `deepl` with a valid key → translation appears
 - [ ] Switch to `deepl` with **no API key** → clear message naming `api_key`, nothing sent
@@ -439,6 +453,16 @@ Set up a deck with German cards, then work through these.
 10. **No automatic cache size limit.** Entries expire by age
     (`cache_lifetime_days`), but there is no maximum row count. Delete
     `user_files/cache.sqlite` to reset it.
+11. **Examples are word-level only.** Tatoeba is searched for selections of up
+    to 3 words / 40 characters; a whole sentence returns nothing useful, so the
+    lookup is skipped. Examples are also unavailable when `source_language` is
+    `auto`, because Tatoeba needs a concrete language code.
+12. **Examples are not cached.** Unlike translations and audio, each lookup
+    queries Tatoeba again (~0.2s). Worth adding if it becomes noticeable.
+13. **Auto-lookup changes the privacy posture.** With the defaults, selecting
+    text transmits it immediately — no button press gates it any more. This was
+    an explicit request; `auto_translate`, `auto_pronounce` and `show_examples`
+    each turn their own request off.
 
 ---
 

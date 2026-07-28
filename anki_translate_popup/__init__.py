@@ -20,10 +20,11 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .cache import TranslationCache
 from .config import DEFAULTS, AddonConfig, parse_config
+from .examples import TatoebaExamples
 from .translation import TranslationError, TranslationRequest, build_translator
 from .translation.base import ConfigurationError, ProviderError
 from .tts import MAX_SPEECH_CHARS, GoogleTextToSpeech, SpeechError
@@ -155,6 +156,7 @@ def _translate_blocking(text: str) -> Dict[str, Any]:
     try:
         payload = _translate_with(config, primary, text)
         payload["usedFallback"] = False
+        payload["examples"] = _fetch_examples(config, text)
         return payload
     except TranslationError as primary_error:
         if not config.fallback_provider:
@@ -177,7 +179,22 @@ def _translate_blocking(text: str) -> Dict[str, Any]:
             ) from fallback_error
 
         payload["usedFallback"] = True
+        payload["examples"] = _fetch_examples(config, text)
         return payload
+
+
+def _fetch_examples(config: AddonConfig, text: str) -> List[Dict[str, str]]:
+    """Look up usage examples. Never allowed to fail a translation."""
+    if not config.show_examples:
+        return []
+    try:
+        found = TatoebaExamples(config.request_timeout_seconds).fetch(
+            text, config.source_language, config.target_language
+        )
+    except Exception:  # noqa: BLE001 - examples are a bonus, not the answer
+        logger.warning("Example lookup failed", exc_info=True)
+        return []
+    return [{"text": e.text, "translation": e.translation} for e in found]
 
 
 # -- speech (worker thread) -------------------------------------------------
