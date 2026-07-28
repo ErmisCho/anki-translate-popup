@@ -5,9 +5,10 @@
     python release.py 1.1.0      # or say which version
 
 It runs the tests, bumps `human_version`, builds the .ankiaddon, commits, tags,
-pushes, and creates the GitHub release with the package attached. Any
-interpreter with `requests` will do — it reuses itself for the suite and the
-build — and it works from any directory.
+pushes, and creates the GitHub release with the package attached. Run it with
+whatever `python` is on your PATH, from any directory: the suite needs Anki's
+own `aqt` and `requests`, so the script finds Anki's bundled interpreter itself
+rather than making you type its path.
 
 AnkiWeb is the one step left by hand: it has no API, so the script finishes by
 printing what to upload where.
@@ -16,6 +17,7 @@ printing what to upload where.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -26,6 +28,27 @@ ROOT = Path(__file__).resolve().parent
 MANIFEST = ROOT / "anki_translate_popup" / "manifest.json"
 PACKAGE = ROOT / "anki_translate_popup.ankiaddon"
 BRANCH = "main"
+REQUIRED = ("aqt", "requests")
+BUNDLED = (
+    Path(os.environ.get("LOCALAPPDATA", "")) / "AnkiProgramFiles" / ".venv" / "Scripts" / "python.exe"
+)
+
+
+def interpreter() -> str:
+    """An interpreter that can run the suite.
+
+    test_screens.py imports the add-on package, which reaches for `aqt`, so a
+    bare system Python silently errors on 8 of the 271 tests. Anki's own venv
+    has both `aqt` and `requests`.
+    """
+    if all(find_spec(module) for module in REQUIRED):
+        return sys.executable
+    if BUNDLED.is_file():
+        return str(BUNDLED)
+    raise SystemExit(
+        f"no interpreter with {' and '.join(REQUIRED)} — {sys.executable} lacks them "
+        f"and {BUNDLED} is not there. Run this with Anki's bundled Python."
+    )
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -79,8 +102,7 @@ def check_history_is_clean(previous_tag: str) -> None:
 
 
 def main(requested: str | None) -> int:
-    if find_spec("requests") is None:
-        raise SystemExit(f"{sys.executable} has no requests — the tests need it")
+    python = interpreter()
 
     branch = run("git", "rev-parse", "--abbrev-ref", "HEAD", capture=True)
     if branch != BRANCH:
@@ -103,10 +125,10 @@ def main(requested: str | None) -> int:
     check_history_is_clean(previous.splitlines()[0] if previous else "")
 
     # Tests before the bump, so a failure leaves the tree exactly as it was.
-    run(sys.executable, "-m", "unittest", "discover", "-s", "anki_translate_popup/tests", "-t", ".")
+    run(python, "-m", "unittest", "discover", "-s", "anki_translate_popup/tests", "-t", ".")
 
     set_version(MANIFEST, version)
-    run(sys.executable, "build_ankiaddon.py")
+    run(python, "build_ankiaddon.py")
 
     run("git", "add", str(MANIFEST.relative_to(ROOT)))
     run("git", "commit", "-m", f"chore: release {tag}")
