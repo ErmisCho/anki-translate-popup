@@ -506,10 +506,46 @@ class GearOptionAppliesNowTest(unittest.TestCase):
         self.write("auto_pronounce_card", True, reviewer=reviewer)
         self.assertIsNone(addon._last_auto_spoken)
 
-    def test_turning_it_off_speaks_nothing(self):
+    def test_turning_it_off_speaks_nothing_and_stops_what_is_playing(self):
         reviewer = mock.Mock(card=mock.Mock(), state="question")
-        _, _, shown = self.write("auto_pronounce_card", False, reviewer=reviewer)
+        with mock.patch.object(addon, "_qt_stop_speech") as stop:
+            _, _, shown = self.write("auto_pronounce_card", False, reviewer=reviewer)
         shown.assert_not_called()
+        stop.assert_called_once()
+
+    def spoken_side(self, key, *, state, **overrides):
+        """Which side _on_card_side_shown was asked for, with the answer showing.
+
+        _raw_config is patched rather than addonManager.getConfig: outside a
+        running Anki it returns DEFAULTS without consulting the manager at all.
+        """
+        raw = dict(DEFAULTS, **overrides)
+        reviewer = mock.Mock(card=mock.Mock(), state=state)
+        fake_mw = mock.Mock(addonManager=mock.Mock(), state="review", reviewer=reviewer)
+        with mock.patch.object(addon, "mw", fake_mw), mock.patch.object(
+            addon, "_raw_config", return_value=raw
+        ), mock.patch.object(addon, "_apply_config_change"), mock.patch.object(
+            addon, "_on_card_side_shown"
+        ) as shown:
+            addon._set_option(json.dumps({"key": key, "value": True}))
+        return shown.call_args.kwargs["is_answer"] if shown.called else None
+
+    def test_on_the_answer_it_speaks_the_prompt_when_the_answer_is_not_spoken(self):
+        """Otherwise the one side auto-pronounce never says is the side chosen."""
+        side = self.spoken_side(
+            "auto_pronounce_card", state="answer", auto_pronounce_answer=False
+        )
+        self.assertIs(side, False)
+
+    def test_on_the_answer_it_speaks_the_answer_when_that_is_allowed(self):
+        side = self.spoken_side(
+            "auto_pronounce_card", state="answer", auto_pronounce_answer=True
+        )
+        self.assertIs(side, True)
+
+    def test_enabling_the_answer_toggle_speaks_the_answer_on_screen(self):
+        side = self.spoken_side("auto_pronounce_answer", state="answer")
+        self.assertIs(side, True)
 
     def test_an_unrelated_toggle_speaks_nothing(self):
         reviewer = mock.Mock(card=mock.Mock(), state="question")

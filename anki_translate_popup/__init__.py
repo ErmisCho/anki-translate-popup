@@ -823,17 +823,42 @@ def _set_option(raw_payload: str) -> None:
     _apply_config_change()
     logger.debug("Option %s set to %s", key, value)
 
-    # Turning card speech on is a request to hear this card, not the next one.
-    # The dedupe is cleared first: this side was already marked as spoken.
-    if value and key in _CARD_SPEECH_OPTIONS:
-        global _last_auto_spoken
-        _last_auto_spoken = None
-        reviewer = getattr(mw, "reviewer", None)
-        card = getattr(reviewer, "card", None)
-        if card is not None and getattr(mw, "state", "") == "review":
-            _on_card_side_shown(
-                card, is_answer=getattr(reviewer, "state", "question") == "answer"
-            )
+    if key in _CARD_SPEECH_OPTIONS:
+        _apply_card_speech_toggle(key, bool(value))
+
+
+def _apply_card_speech_toggle(key: str, enabled: bool) -> None:
+    """Make a card-speech toggle audible immediately, in either direction.
+
+    Switching one off stops what is playing: the switch is about whether the
+    card is spoken, and carrying on until the clip ends reads as a switch that
+    did nothing.
+    """
+    global _last_auto_spoken
+    if not enabled:
+        _qt_stop_speech()
+        return
+
+    reviewer = getattr(mw, "reviewer", None)
+    card = getattr(reviewer, "card", None)
+    if card is None or getattr(mw, "state", "") != "review":
+        return
+
+    config, error = _load_config()
+    if error:
+        return
+    is_answer = getattr(reviewer, "state", "question") == "answer"
+    # Speak the side this setting governs, not merely the side on screen. With
+    # the answer showing and "Also speak the answer" off, the answer is exactly
+    # what auto-pronounce would never say, so saying nothing looks like a
+    # switch that did not work - the card's prompt is what it would have said.
+    if key == "auto_pronounce_card" and is_answer and not config.auto_pronounce_answer:
+        is_answer = False
+
+    # The dedupe is cleared last, and only once a side has been settled on:
+    # that side is already marked as spoken and would swallow this playback.
+    _last_auto_spoken = None
+    _on_card_side_shown(card, is_answer=is_answer)
 
 
 def _start_speech(web: Any, request_id: int, text: str, lang: str = "") -> None:

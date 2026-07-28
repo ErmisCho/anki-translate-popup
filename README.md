@@ -368,6 +368,8 @@ Set up a deck with German cards, then work through these.
 - [ ] Click the **gear** → every switch and all three voice rows are visible at once, no scrolling, ticks matching the current config
 - [ ] Flip a toggle → tick changes, menu stays open, setting persists after reopening the popup
 - [ ] Turn *Speak the card as it appears* **on** mid-card → the card on screen is spoken at once, not one card later
+- [ ] Turn it on **while the answer is showing**, with *Also speak the answer* off → the card's prompt is spoken, not silence
+- [ ] Turn it off **while a card is being spoken** → the audio stops there and then
 - [ ] Turn it **off** → nothing is spoken, and the next card is silent
 - [ ] Reveal the answer, then turn *Also speak the answer* on → the answer is spoken immediately
 - [ ] Flip a toggle with the browser previewer also open → both screens agree without a restart
