@@ -25,6 +25,7 @@
         ttsProvider: "google_unofficial",
         voiceGender: "female",
         speakOnlyLanguage: "",
+        theme: "auto",
         preferredVoice: "",
         speechRate: 0.9,
         fontSize: 14,
@@ -254,6 +255,19 @@
         return root;
     }
 
+    /**
+     * Force the popup's palette, or leave it following Anki.
+     *
+     * A class on the popup rather than on <html>: the add-on has no business
+     * restyling the card behind it, and Anki owns that element.
+     */
+    function applyTheme() {
+        popup.classList.remove("atp-theme-dark", "atp-theme-light");
+        if (config.theme === "dark" || config.theme === "light") {
+            popup.classList.add("atp-theme-" + config.theme);
+        }
+    }
+
     function applyFontSize() {
         var size = Number(config.fontSize);
         if (!isFinite(size) || size <= 0) {
@@ -473,6 +487,13 @@
                 auto: "System, else online",
                 system: "System only",
             },
+        },
+        {
+            key: "theme",
+            field: "theme",
+            label: "Theme",
+            options: ["auto", "dark", "light"],
+            names: { auto: "Follow Anki", dark: "Dark", light: "Light" },
         },
         {
             key: "speak_only_language",
@@ -758,6 +779,7 @@
             popup = build();
         }
         applyFontSize();
+        applyTheme();
 
         selectedText = text;
         pendingRequestId = 0;
@@ -935,6 +957,7 @@
         stopShortcut = parseShortcut(config.stopSpeechShortcut);
         if (popup) {
             applyFontSize();
+            applyTheme();
             if (isOpen() && !lastTranslation) {
                 setLanguages(config.sourceLanguage, config.targetLanguage);
             }

@@ -541,6 +541,23 @@ Allowed range: 0.1–10.
 
 **Default:** `0.9`
 
+### `theme`
+
+Which palette the popup uses.
+
+| Value | Meaning |
+| --- | --- |
+| `auto` | Follow Anki's own light/dark, switching live when you switch Anki's. |
+| `dark` | Always dark, even on a light collection. |
+| `light` | Always light, even in night mode. |
+
+Only the popup and its menu are affected — the card behind them belongs to
+Anki, and an add-on has no business restyling it.
+
+Also on the gear menu, as *Theme*, with **Follow Anki** at the top.
+
+**Default:** `"auto"`
+
 ### `popup_font_size`
 
 Base font size of the popup in pixels. Allowed range: 8–40.

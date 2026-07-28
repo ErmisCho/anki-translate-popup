@@ -424,7 +424,7 @@ _LANGUAGE_OPTIONS = (
 
 #: Gear settings that are a fixed choice rather than a language. Same string
 #: handling as above; parse_config is what rejects a value off the list.
-_CHOICE_OPTIONS = ("voice_gender", "tts_provider")
+_CHOICE_OPTIONS = ("voice_gender", "tts_provider", "theme")
 
 #: Toggles that decide whether the card on screen is spoken. Switching one on
 #: should be audible now rather than one card later.

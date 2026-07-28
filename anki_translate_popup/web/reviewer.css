@@ -94,19 +94,28 @@
     background-image: none !important;
 }
 
-:root.night-mode .atp-popup,
-:root[data-bs-theme="dark"] .atp-popup {
-    --atp-bg: #2b2f36;
-    --atp-fg: #e6e8ea;
-    --atp-muted: #99a2ad;
-    --atp-border: #454b54;
-    --atp-shadow: rgba(0, 0, 0, 0.55);
-    --atp-hover: rgba(255, 255, 255, 0.1);
-    --atp-active: rgba(255, 255, 255, 0.17);
+/*
+ * Dark: Anki's own night mode, unless the popup was told to stay light, or the
+ * popup told to be dark on a light collection. `theme: auto` is neither class
+ * and simply follows Anki, so forcing light needs no block of its own - it
+ * falls through to the light values above rather than restating them.
+ */
+:root.night-mode .atp-popup:not(.atp-theme-light),
+:root[data-bs-theme="dark"] .atp-popup:not(.atp-theme-light),
+:root .atp-popup.atp-theme-dark {
+    /* One near-black family with the menu, a shade above it so the menu still
+       reads as a panel in front of the popup rather than part of its face. */
+    --atp-bg: #131418;
+    --atp-fg: #e7e9ec;
+    --atp-muted: #98a1ab;
+    --atp-border: rgba(255, 255, 255, 0.09);
+    --atp-shadow: rgba(0, 0, 0, 0.72);
+    --atp-hover: rgba(255, 255, 255, 0.08);
+    --atp-active: rgba(255, 255, 255, 0.15);
     --atp-accent: #7cb0e8;
-    --atp-error-bg: #4a2726;
+    --atp-error-bg: #3a1f1f;
     --atp-error-fg: #ffb4b0;
-    --atp-result-bg: #343941;
+    --atp-result-bg: #1c1e23;
     /* Near-black, a step darker than the popup, so the menu sits clearly on
        top of it rather than merging with it. */
     --atp-menu-bg: #0b0c0f;

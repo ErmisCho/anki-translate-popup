@@ -433,6 +433,10 @@ Set up a deck with German cards, then work through these.
 - [ ] **Light mode** → readable, correct contrast
 - [ ] **Dark mode** (Tools → Preferences → Appearance) → readable, correct contrast
 - [ ] Open the gear in dark mode → the menu is near-black and clearly a panel above the popup, not part of it
+- [ ] The popup itself is near-black too, one shade above the menu rather than a grey box around it
+- [ ] Gear → **Theme** → *Light* while Anki is dark → popup and menu both go light, the card behind is untouched
+- [ ] Gear → **Theme** → *Dark* while Anki is light → both go dark
+- [ ] Gear → **Theme** → *Follow Anki*, then switch Anki's theme → the popup follows without reopening
 - [ ] Open it in light mode → white, with the same grouping and no heavy borders
 - [ ] Hover a row → it lights briefly rather than snapping; the switches and the pickers read as two groups
 - [ ] Toggle the theme **while the popup is open** → colours follow immediately

@@ -34,6 +34,9 @@ VALID_CARD_SPEECH_SCOPES = ("first-line", "full")
 #: preference applied by name, not a guarantee - see _voice_gender in
 #: reviewer.js. "any" takes whatever the language offers.
 VALID_VOICE_GENDERS = ("female", "male", "any")
+#: "auto" follows Anki's own light/dark; the other two override it for the
+#: popup alone, for anyone who wants a dark popup on a light collection.
+VALID_THEMES = ("auto", "dark", "light")
 
 #: Must stay in sync with config.json - Anki merges that file over these.
 DEFAULTS: Dict[str, Any] = {
@@ -63,6 +66,7 @@ DEFAULTS: Dict[str, Any] = {
     "card_speech_scope": "first-line",
     "voice_gender": "female",
     "speak_only_language": "",
+    "theme": "auto",
     "front_speech_language": "auto",
     "back_speech_language": "auto",
     "expand_abbreviations": True,
@@ -104,6 +108,7 @@ class AddonConfig:
     card_speech_scope: str
     voice_gender: str
     speak_only_language: str
+    theme: str
     front_speech_language: str
     back_speech_language: str
     expand_abbreviations: bool
@@ -220,6 +225,7 @@ class AddonConfig:
             "ttsProvider": self.tts_provider,
             "voiceGender": self.voice_gender,
             "speakOnlyLanguage": self.speak_only_language,
+            "theme": self.theme,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
             "speechRate": self.speech_rate,
@@ -460,6 +466,13 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
             speak_only_language, "speak_only_language", errors, allow_auto=False
         )
 
+    theme = _require_str(raw, "theme", errors).lower()
+    if theme not in VALID_THEMES:
+        errors.append(
+            f"'theme' must be one of {', '.join(VALID_THEMES)}, got {theme!r}."
+        )
+        theme = str(DEFAULTS["theme"])
+
     voice_gender = _require_str(raw, "voice_gender", errors).lower()
     if voice_gender not in VALID_VOICE_GENDERS:
         errors.append(
@@ -520,6 +533,7 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         card_speech_scope=card_speech_scope,
         voice_gender=voice_gender,
         speak_only_language=speak_only_language,
+        theme=theme,
         front_speech_language=_normalise_language(
             _require_str(raw, "front_speech_language", errors),
             "front_speech_language",

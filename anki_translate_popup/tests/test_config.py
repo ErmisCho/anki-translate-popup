@@ -357,6 +357,25 @@ class PickerLanguagesTest(unittest.TestCase):
         self.assertEqual(config.picker_languages, ("de", "en"))
 
 
+class ThemeTest(unittest.TestCase):
+    def test_default_follows_anki(self):
+        self.assertEqual(parse_config(DEFAULTS).theme, "auto")
+
+    def test_each_documented_value_is_accepted(self):
+        for value in ("auto", "dark", "light"):
+            with self.subTest(value=value):
+                self.assertEqual(parse_config(config_with(theme=value)).theme, value)
+
+    def test_unknown_value_is_rejected_by_name(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config(config_with(theme="midnight"))
+        self.assertIn("theme", str(ctx.exception))
+
+    def test_reaches_the_webview(self):
+        """The page carries the class, so the value has to get there."""
+        self.assertEqual(parse_config(config_with(theme="dark")).for_webview()["theme"], "dark")
+
+
 class VoiceGenderTest(unittest.TestCase):
     def test_default_is_female(self):
         self.assertEqual(parse_config(DEFAULTS).voice_gender, "female")
