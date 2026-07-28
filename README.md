@@ -540,15 +540,17 @@ must stay stable across versions, and `human_version` should be bumped.
 
 ### Cutting a release
 
-`release.py` does the whole sequence — tests, version bump, build, commit, tag,
-push, GitHub release with the package attached:
+`python release.py` does the whole sequence — tests, version bump, build,
+commit, tag, push, GitHub release with the package attached:
 
 ```powershell
-& "$env:LOCALAPPDATA\AnkiProgramFiles\.venv\Scripts\python.exe" release.py 1.1.0
+python release.py          # 1.0.0 -> 1.0.1
+python release.py 1.1.0    # or say which version
 ```
 
-Run it with the same interpreter as the tests: it reuses `sys.executable` for
-the suite and the build.
+Any `python` on your PATH will do, from any directory. The suite needs Anki's
+own `aqt`, which a system Python does not have, so the script locates Anki's
+bundled interpreter itself rather than making you type its path.
 
 It refuses to start unless the tree is clean, the branch is `main`, the version
 is newer than the released one, and no commit since the last tag carries a
