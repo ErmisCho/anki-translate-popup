@@ -1344,6 +1344,19 @@ def _start_translation(
     )
 
 
+def _apply_log_level() -> None:
+    """Make debug_logging mean what its name says.
+
+    It was forwarded to the webview as `debug`, which turned on the page's
+    console output, and nothing ever set the level of the Python logger. Every
+    logger.debug call in this file was therefore discarded no matter what the
+    setting said - including the ones added specifically to diagnose a report,
+    which is how the gap came to light.
+    """
+    config, _error = _load_config()
+    logger.setLevel(logging.DEBUG if config.debug_logging else logging.INFO)
+
+
 def on_config_updated(_new_config: Any) -> None:
     """Anki's config dialog saved: same work as a change made in the popup."""
     _apply_config_change()
@@ -1369,6 +1382,7 @@ def _apply_config_change() -> None:
     if error:
         logger.warning("Configuration saved with problems: %s", error)
 
+    _apply_log_level()
     _rebuild_qt_speech_shortcuts()
     reviewer = getattr(mw, "reviewer", None)
     web = getattr(reviewer, "web", None)
@@ -1393,6 +1407,8 @@ def setup() -> None:
         logger = AddonManager.get_logger(__name__)
     except Exception:  # pragma: no cover - older Anki without addon loggers
         logger.debug("Falling back to the module logger", exc_info=True)
+
+    _apply_log_level()
 
     mw.addonManager.setWebExports(__name__, r"web/.*\.(css|js)")
     mw.addonManager.setConfigUpdatedAction(__name__, on_config_updated)

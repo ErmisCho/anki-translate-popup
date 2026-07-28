@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from anki_translate_popup.config import (
@@ -355,6 +356,26 @@ class PickerLanguagesTest(unittest.TestCase):
     def test_blank_entries_are_dropped_without_an_error(self):
         config = parse_config(config_with(picker_languages=["de", "", "   ", "en"]))
         self.assertEqual(config.picker_languages, ("de", "en"))
+
+
+class DebugLoggingTest(unittest.TestCase):
+    """The setting has to reach the Python logger, not only the page."""
+
+    def test_it_sets_the_logger_level(self):
+        import logging
+        import anki_translate_popup as addon
+
+        for enabled, expected in ((True, logging.DEBUG), (False, logging.INFO)):
+            with self.subTest(enabled=enabled):
+                with mock.patch.object(
+                    addon, "_load_config",
+                    return_value=(parse_config(config_with(debug_logging=enabled)), None),
+                ), mock.patch.object(addon.logger, "setLevel") as set_level:
+                    addon._apply_log_level()
+                set_level.assert_called_once_with(expected)
+
+    def test_the_page_is_told_as_well(self):
+        self.assertIs(parse_config(config_with(debug_logging=True)).for_webview()["debug"], True)
 
 
 class ThemeTest(unittest.TestCase):
