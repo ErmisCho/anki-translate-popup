@@ -185,6 +185,54 @@ Set this to `system` if you want pronunciation to stay strictly offline.
 
 **Default:** `auto`
 
+### `cache_max_entries`
+
+Maximum number of cached translations. Once exceeded, the oldest are dropped.
+Use `0` for no limit.
+
+**Default:** `5000`
+
+### `tts_cache_max_mb`
+
+Maximum size in megabytes of the cached pronunciation audio in
+`user_files/tts/`. Once exceeded, the oldest clips are deleted. Use `0` for no
+limit.
+
+**Default:** `100`
+
+### `enable_in_previewer`
+
+Also show the popup in the card **previewer** — the window the browser opens
+when you preview a card. The reviewer always has it.
+
+Deliberately not offered in the card-layout/template editor or the note editor:
+those are text-editing surfaces where a selection popup would fight with
+typing.
+
+**Default:** `true`
+
+### `lookup_shortcut`
+
+Keyboard shortcut that looks up the current selection, for when you have
+already selected text and want the popup back after closing it.
+
+Written as `Ctrl+Shift+T`, `Alt+D`, and so on. Set it to `""` to disable.
+Choose something Anki does not already use — `Ctrl+Shift+T` is free in the
+reviewer as of 25.09.4.
+
+**Default:** `"Ctrl+Shift+T"`
+
+### `picker_languages`
+
+Languages offered in the dropdowns when you click **DE** or **EN** in the popup
+header. A list of two- or three-letter codes.
+
+The source dropdown also offers `auto`; the currently-selected language is
+always shown even if it is not in this list. Clicking the **→** between them
+swaps source and target and re-translates.
+
+**Default:** `["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"]`
+
 ### `speech_language`
 
 Language tag used for pronunciation, e.g. `de-DE`, `de-AT`, `en-US`.

@@ -14,7 +14,8 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from stat import S_ISREG
+from typing import Callable, Iterator, List, Optional, Tuple
 
 from .translation.base import TranslationResult
 
@@ -45,10 +46,59 @@ def make_key(provider: str, source_lang: str, target_lang: str, text: str) -> st
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-class TranslationCache:
-    """Persistent cache with a time-to-live.
+def prune_audio_cache(directory: Path, max_bytes: int) -> int:
+    """Delete the oldest files until the directory fits in max_bytes.
 
-    A ``lifetime_seconds`` of ``0`` means entries never expire.
+    Returns the number of files deleted.
+    """
+    directory = Path(directory)
+    # A cache folder that was never created is not an error, just nothing to do.
+    if max_bytes <= 0 or not directory.is_dir():
+        return 0
+
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        logger.exception("Audio cache listing failed for %s", directory)
+        return 0
+
+    files: List[Tuple[float, int, Path]] = []
+    total = 0
+    for entry in entries:
+        # Only finished downloads: .part files belong to a fetch in flight.
+        if entry.suffix.lower() != ".mp3":
+            continue
+        try:
+            info = entry.stat()
+        except OSError:
+            logger.exception("Audio cache stat failed for %s", entry)
+            continue
+        if not S_ISREG(info.st_mode):
+            continue
+        files.append((info.st_mtime, info.st_size, entry))
+        total += info.st_size
+
+    deleted = 0
+    for _mtime, size, entry in sorted(files, key=lambda item: item[0]):
+        if total <= max_bytes:
+            break
+        try:
+            entry.unlink()
+        except OSError:
+            # Another process may still hold the file open; leave it and
+            # reclaim it on the next prune.
+            logger.exception("Audio cache delete failed for %s", entry)
+            continue
+        total -= size
+        deleted += 1
+    return deleted
+
+
+class TranslationCache:
+    """Persistent cache with a time-to-live and a row-count limit.
+
+    A ``lifetime_seconds`` of ``0`` means entries never expire; a
+    ``max_entries`` of ``0`` means the number of rows is unlimited.
     """
 
     def __init__(
@@ -56,9 +106,12 @@ class TranslationCache:
         path: Path,
         lifetime_seconds: int,
         clock: Callable[[], float] = time.time,
+        *,
+        max_entries: int = 0,
     ) -> None:
         self._path = Path(path)
         self._lifetime = max(0, int(lifetime_seconds))
+        self._max_entries = max(0, int(max_entries))
         self._clock = clock
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
@@ -137,8 +190,27 @@ class TranslationCache:
                         self._clock(),
                     ),
                 )
+                self._evict(conn)
         except sqlite3.Error:
             logger.exception("Cache write failed for provider %s", provider)
+
+    def _evict(self, conn: sqlite3.Connection) -> int:
+        """Delete everything but the newest ``max_entries`` rows. Returns the count.
+
+        One indexed DELETE rather than a COUNT followed by a conditional
+        DELETE: it is a single statement on the same connection and the
+        ``created_at`` index covers the ordering, so running it on every write
+        is cheaper than the extra round trip a check would add - and the cache
+        sits exactly at the limit instead of sawtoothing above it.
+        """
+        if self._max_entries == 0:
+            return 0
+        cursor = conn.execute(
+            "DELETE FROM translations WHERE key NOT IN ("
+            "SELECT key FROM translations ORDER BY created_at DESC LIMIT ?)",
+            (self._max_entries,),
+        )
+        return cursor.rowcount or 0
 
     def delete(self, key: str) -> None:
         try:
@@ -160,6 +232,17 @@ class TranslationCache:
                 return cursor.rowcount or 0
         except sqlite3.Error:
             logger.exception("Cache purge failed")
+            return 0
+
+    def enforce_limit(self) -> int:
+        """Evict the least-recently-created rows beyond the configured maximum."""
+        if self._max_entries == 0:
+            return 0
+        try:
+            with self._connect() as conn:
+                return self._evict(conn)
+        except sqlite3.Error:
+            logger.exception("Cache limit enforcement failed")
             return 0
 
     def clear(self) -> int:

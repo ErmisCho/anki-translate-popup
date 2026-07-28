@@ -47,7 +47,7 @@ hooks:
 
 | API | Purpose |
 | --- | --- |
-| `gui_hooks.webview_will_set_content` | Inject CSS/JS into the reviewer |
+| `gui_hooks.webview_will_set_content` | Inject CSS/JS into the reviewer and previewer |
 | `gui_hooks.webview_did_receive_js_message` | Receive `pycmd()` calls |
 | `AddonManager.setWebExports` | Serve `web/` under `/_addons/` |
 | `AddonManager.getConfig` / `setConfigUpdatedAction` | Configuration |
@@ -238,6 +238,14 @@ popup renders result or error via textContent
 
 ### Design decisions
 
+**Why one implementation covers reviewer and previewer.** The browser's
+previewer renders a card with the same `Reviewer.revHtml()` the reviewer uses,
+so the injected JS and CSS work unchanged; the two only differ in which
+attribute holds the webview (`Reviewer.web` vs `Previewer._web`), which
+`_webview_for()` resolves. The answer-button bar is excluded because it holds
+no card text, and the card-layout and note editors because they are text-editing
+surfaces where a selection popup would fight with typing.
+
 **Why the UI thread never blocks.** All network and SQLite work happens inside
 `QueryOp.op`, which Anki runs on a worker thread. `without_collection()` marks
 the operation as not needing the collection, so translations are not serialised
@@ -346,6 +354,18 @@ Set up a deck with German cards, then work through these.
 - [ ] Click the clipboard → turns into a tick for ~1s, then back; paste elsewhere to confirm
 - [ ] Select text *inside* the popup → popup does not reset
 - [ ] Resize the window while open → popup closes cleanly
+- [ ] Click the source code (**DE**) → dropdown lists the configured languages plus *auto*
+- [ ] Click the target code (**EN**) → dropdown lists them **without** *auto*
+- [ ] Pick a different language → popup re-translates, does not merely relabel
+- [ ] Click the **→** → languages swap and the text re-translates
+- [ ] Swap while source is `auto` → the detected language becomes the target, never `auto`
+- [ ] Escape with a dropdown open → closes the dropdown only; a second Escape closes the popup
+- [ ] Reopen the popup after changing languages → the new pair persisted
+- [ ] Tab to the language controls and press Enter → dropdown opens (keyboard accessible)
+- [ ] Select text, press Escape, then **Ctrl+Shift+T** → popup reopens for that selection
+- [ ] Press Ctrl+Shift+T with nothing selected → nothing happens
+- [ ] Preview a card from the browser → popup works there too
+- [ ] Set `enable_in_previewer: false` → popup no longer appears in the previewer, still works in the reviewer
 
 ### No interference with Anki
 
@@ -445,14 +465,18 @@ Set up a deck with German cards, then work through these.
 7. **The API key is stored in plain text** in Anki's `meta.json`, which is how
    Anki's configuration system works. `build_ankiaddon.py` deliberately excludes
    `meta.json` from the package so a key cannot be shipped by accident.
-8. **Reviewer only.** The popup does not appear in the card browser, the previewer,
-   or the note editor.
-9. **Selection is mouse-driven.** Keyboard-only selection (Shift+arrows) does not
-   raise the popup, because the add-on deliberately listens to `mouseup` rather
-   than binding keys that Anki reserves.
-10. **No automatic cache size limit.** Entries expire by age
-    (`cache_lifetime_days`), but there is no maximum row count. Delete
-    `user_files/cache.sqlite` to reset it.
+8. **Reviewer and previewer only.** Not the note editor or the card-layout
+   editor: those are text-editing surfaces where a selection popup would fight
+   with typing. Turn the previewer off with `enable_in_previewer`.
+9. **Selection is mouse-driven.** Anki's reviewer has no text caret, so
+   Shift+arrow selection is not possible in the first place. `lookup_shortcut`
+   re-opens the popup for a selection you already made; it cannot create one.
+10. **A Qt-side TTS provider would buy nothing.** `QTextToSpeech` was probed on
+    both its Windows engines and reports exactly the same voices the webview
+    already sees — `sapi` gives `['en_US']` (David, Zira) and `winrt` gives
+    `['en_US']` (David, Zira, Mark). Neither exposes a German voice, so routing
+    speech through Qt would not reach the Narrator natural voices either. Only
+    installing a classic voice, or the online provider, actually helps.
 11. **Examples are word-level only.** Tatoeba is searched for selections of up
     to 3 words / 40 characters; a whole sentence returns nothing useful, so the
     lookup is skipped. Examples are also unavailable when `source_language` is

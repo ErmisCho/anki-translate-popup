@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .cache import TranslationCache
+from .cache import TranslationCache, prune_audio_cache
 from .config import DEFAULTS, AddonConfig, parse_config
 from .examples import TatoebaExamples
 from .translation import TranslationError, TranslationRequest, build_translator
@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - exercised only inside Anki
     import aqt
-    import aqt.reviewer  # imported explicitly; `import aqt` alone may not bind it
+    import aqt.browser.previewer  # explicit: `import aqt` alone does not bind these
+    import aqt.reviewer
     from aqt import gui_hooks, mw
     from aqt.addons import AddonManager
     from aqt.operations import QueryOp
@@ -93,7 +94,11 @@ def _get_cache(config: AddonConfig) -> Optional[TranslationCache]:
         return None
     with _cache_lock:
         if _cache is None or _cache_lifetime_days != config.cache_lifetime_days:
-            _cache = TranslationCache(_CACHE_PATH, config.cache_lifetime_seconds)
+            _cache = TranslationCache(
+                _CACHE_PATH,
+                config.cache_lifetime_seconds,
+                max_entries=config.cache_max_entries,
+            )
             _cache_lifetime_days = config.cache_lifetime_days
             _cache.purge_expired()
         return _cache
@@ -228,6 +233,12 @@ def _synthesize_blocking(text: str) -> str:
     partial = path.with_suffix(".part")
     partial.write_bytes(audio)
     partial.replace(path)
+
+    # Trim after writing, so the clip just fetched is the newest and survives.
+    if config.tts_cache_max_mb:
+        removed = prune_audio_cache(_TTS_CACHE_DIR, config.tts_cache_max_mb * 1024 * 1024)
+        if removed:
+            logger.debug("Pruned %s cached audio file(s)", removed)
     return str(path)
 
 
@@ -310,9 +321,32 @@ def _send_to_webview(web: Any, payload: Dict[str, Any]) -> None:
     )
 
 
+def _webview_for(context: Any) -> Optional[Any]:
+    """Return the webview to inject into, or None for an unsupported screen.
+
+    The reviewer and the browser's previewer both render a card with
+    ``Reviewer.revHtml()``, so the same popup works in each; they simply keep
+    their webview under different attribute names. The bottom answer-button bar
+    (``ReviewerBottomBar``) and the card-layout editor are deliberately
+    excluded - the former holds no card text, and the latter is a text editor
+    where a selection popup would fight with typing.
+    """
+    if isinstance(context, aqt.reviewer.Reviewer):
+        return context.web
+
+    previewer = getattr(aqt.browser.previewer, "Previewer", None)
+    if previewer is not None and isinstance(context, previewer):
+        config, _ = _load_config()
+        if not config.enable_in_previewer:
+            return None
+        return getattr(context, "_web", None)
+
+    return None
+
+
 def _is_reviewer(context: Any) -> bool:
-    """True only for the main reviewer webview, not the answer-button bar."""
-    return isinstance(context, aqt.reviewer.Reviewer)
+    """True for any screen the popup supports."""
+    return _webview_for(context) is not None
 
 
 def on_webview_will_set_content(web_content: "WebContent", context: Any) -> None:
@@ -338,7 +372,8 @@ def on_js_message(
 ) -> Tuple[bool, Any]:
     if not message.startswith(BRIDGE_PREFIX):
         return handled
-    if not _is_reviewer(context):
+    web = _webview_for(context)
+    if web is None:
         return handled
 
     command, _, raw_payload = message[len(BRIDGE_PREFIX) :].partition(":")
@@ -347,6 +382,10 @@ def on_js_message(
         from aqt.sound import av_player
 
         av_player.stop_and_clear_queue()
+        return True, None
+
+    if command == "set_languages":
+        _set_languages(raw_payload)
         return True, None
 
     if command not in ("translate", "speak", "copy"):
@@ -362,12 +401,42 @@ def on_js_message(
         return True, None
 
     if command == "translate":
-        _start_translation(context.web, request_id, text)
+        _start_translation(web, request_id, text)
     elif command == "speak":
-        _start_speech(context.web, request_id, text)
+        _start_speech(web, request_id, text)
     else:
-        _copy_to_clipboard(context.web, request_id, text)
+        _copy_to_clipboard(web, request_id, text)
     return True, None
+
+
+def _set_languages(raw_payload: str) -> None:
+    """Persist a language pair chosen from the popup header.
+
+    Validated before it is written: the popup is the only caller today, but a
+    bad pair saved here would break every later lookup, and ``target`` must
+    never be ``auto``.
+    """
+    try:
+        payload = json.loads(raw_payload)
+        source = str(payload["source"])
+        target = str(payload["target"])
+    except (ValueError, TypeError, KeyError):
+        logger.exception("Malformed set_languages payload")
+        return
+
+    raw = _raw_config()
+    raw["source_language"] = source
+    raw["target_language"] = target
+    try:
+        parse_config(raw)
+    except ConfigurationError as exc:
+        logger.warning("Refusing invalid language change (%s -> %s): %s", source, target, exc)
+        return
+
+    # writeConfig fires setConfigUpdatedAction, which re-pushes the config to
+    # every open webview - that is how the other screens stay in step.
+    mw.addonManager.writeConfig(__name__, raw)
+    logger.debug("Language pair set to %s -> %s", source, target)
 
 
 def _copy_to_clipboard(web: Any, request_id: int, text: str) -> None:

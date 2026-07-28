@@ -10,7 +10,7 @@ thread.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .translation.base import ConfigurationError
 
@@ -22,6 +22,8 @@ MAX_SPEECH_RATE = 10.0
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 40
 MAX_CACHE_LIFETIME_DAYS = 3650
+MAX_CACHE_ENTRIES = 1_000_000
+MAX_TTS_CACHE_MB = 10_000
 
 VALID_PROVIDERS = ("deepl", "libretranslate", "google_unofficial")
 #: "auto" prefers an installed system voice and only goes online without one.
@@ -39,6 +41,11 @@ DEFAULTS: Dict[str, Any] = {
     "request_timeout_seconds": 10,
     "cache_enabled": True,
     "cache_lifetime_days": 30,
+    "cache_max_entries": 5000,
+    "tts_cache_max_mb": 100,
+    "enable_in_previewer": True,
+    "lookup_shortcut": "Ctrl+Shift+T",
+    "picker_languages": ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     "auto_translate": True,
     "auto_pronounce": True,
     "show_examples": True,
@@ -63,6 +70,11 @@ class AddonConfig:
     request_timeout_seconds: float
     cache_enabled: bool
     cache_lifetime_days: int
+    cache_max_entries: int
+    tts_cache_max_mb: int
+    enable_in_previewer: bool
+    lookup_shortcut: str
+    picker_languages: Tuple[str, ...]
     auto_translate: bool
     auto_pronounce: bool
     show_examples: bool
@@ -88,6 +100,8 @@ class AddonConfig:
             "targetLanguage": self.target_language,
             "autoTranslate": self.auto_translate,
             "autoPronounce": self.auto_pronounce,
+            "lookupShortcut": self.lookup_shortcut,
+            "pickerLanguages": list(self.picker_languages),
             "ttsProvider": self.tts_provider,
             "speechLanguage": self.speech_language,
             "preferredVoice": self.preferred_voice,
@@ -131,22 +145,69 @@ def _require_number(
     return float(value)
 
 
-def _normalise_language(value: str, key: str, errors: List[str], *, allow_auto: bool) -> str:
+def _parse_language_code(value: str, *, allow_auto: bool) -> Optional[str]:
+    """Normalise one language code, or return None if it is not one.
+
+    Accepts ``de`` and ``en-GB`` style codes and rejects free text, so a typo
+    surfaces here rather than as a cryptic HTTP 400 from a provider. Shared by
+    the single-language settings and by ``picker_languages`` so the two cannot
+    disagree about what a valid code looks like.
+    """
     lang = value.strip().replace("_", "-")
     if not lang:
-        errors.append(f"'{key}' must not be empty.")
-        return str(DEFAULTS[key])
+        return None
     if allow_auto and lang.lower() == "auto":
         return "auto"
-    # Accept "de" and "en-GB" style codes; reject free text early so the
-    # provider does not fail with a cryptic HTTP 400.
+
     parts = lang.split("-")
     if not (2 <= len(parts[0]) <= 3) or not parts[0].isalpha():
+        return None
+    if len(parts) == 1:
+        return parts[0].lower()
+    if len(parts) > 2 or not parts[1].isalnum():
+        return None
+    return f"{parts[0].lower()}-{parts[1].upper()}"
+
+
+def _normalise_language(value: str, key: str, errors: List[str], *, allow_auto: bool) -> str:
+    if not value.strip():
+        errors.append(f"'{key}' must not be empty.")
+        return str(DEFAULTS[key])
+    code = _parse_language_code(value, allow_auto=allow_auto)
+    if code is None:
         errors.append(
             f"'{key}' must be a language code such as 'de', 'en' or 'en-GB', got {value!r}."
         )
         return str(DEFAULTS[key])
-    return lang.lower() if len(parts) == 1 else f"{parts[0].lower()}-{parts[1].upper()}"
+    return code
+
+
+def _require_language_list(raw: Mapping[str, Any], key: str, errors: List[str]) -> Tuple[str, ...]:
+    """Validate a list of language codes, dropping duplicates but keeping order."""
+    value = raw.get(key, DEFAULTS[key])
+    if not isinstance(value, (list, tuple)):
+        errors.append(f"'{key}' must be a list of language codes, got {value!r}.")
+        return tuple(DEFAULTS[key])
+
+    codes: List[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            errors.append(f"'{key}' entries must be text, got {item!r}.")
+            continue
+        if not item.strip():
+            continue
+        # Same parser as source_language/target_language, so a code that is
+        # valid as a target is always offerable in the picker.
+        code = _parse_language_code(item, allow_auto=False)
+        if code is None:
+            errors.append(
+                f"'{key}' entries must be language codes such as 'de' or "
+                f"'en-GB', got {item!r}."
+            )
+            continue
+        if code not in codes:
+            codes.append(code)
+    return tuple(codes) if codes else tuple(DEFAULTS[key])
 
 
 def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
@@ -231,6 +292,15 @@ def parse_config(raw: Optional[Mapping[str, Any]]) -> AddonConfig:
         ),
         cache_enabled=_require_bool(raw, "cache_enabled", errors),
         cache_lifetime_days=lifetime,
+        cache_max_entries=int(
+            _require_number(raw, "cache_max_entries", errors, 0, MAX_CACHE_ENTRIES)
+        ),
+        tts_cache_max_mb=int(
+            _require_number(raw, "tts_cache_max_mb", errors, 0, MAX_TTS_CACHE_MB)
+        ),
+        enable_in_previewer=_require_bool(raw, "enable_in_previewer", errors),
+        lookup_shortcut=_require_str(raw, "lookup_shortcut", errors),
+        picker_languages=_require_language_list(raw, "picker_languages", errors),
         auto_translate=_require_bool(raw, "auto_translate", errors),
         auto_pronounce=_require_bool(raw, "auto_pronounce", errors),
         show_examples=_require_bool(raw, "show_examples", errors),

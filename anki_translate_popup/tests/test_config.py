@@ -6,7 +6,12 @@ import json
 import unittest
 from pathlib import Path
 
-from anki_translate_popup.config import DEFAULTS, parse_config
+from anki_translate_popup.config import (
+    DEFAULTS,
+    MAX_CACHE_ENTRIES,
+    MAX_TTS_CACHE_MB,
+    parse_config,
+)
 from anki_translate_popup.translation import build_translator
 from anki_translate_popup.translation.base import ConfigurationError
 
@@ -43,6 +48,17 @@ class ParseDefaultsTest(unittest.TestCase):
         path = Path(__file__).resolve().parent.parent / "config.json"
         shipped = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(shipped, DEFAULTS)
+
+    def test_documented_defaults_for_recent_options(self):
+        """Guards against a key silently vanishing from both DEFAULTS and config.json."""
+        self.assertEqual(DEFAULTS["cache_max_entries"], 5000)
+        self.assertEqual(DEFAULTS["tts_cache_max_mb"], 100)
+        self.assertTrue(DEFAULTS["enable_in_previewer"])
+        self.assertEqual(DEFAULTS["lookup_shortcut"], "Ctrl+Shift+T")
+        self.assertEqual(
+            DEFAULTS["picker_languages"],
+            ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
+        )
 
     def test_missing_keys_fall_back_to_defaults(self):
         config = parse_config({"api_key": "abc"})
@@ -145,12 +161,173 @@ class TypeAndRangeTest(unittest.TestCase):
         self.assertIn("request_timeout_seconds", message)
         self.assertIn("popup_font_size", message)
 
+    def test_all_cache_and_reviewer_errors_reported_at_once(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config(
+                config_with(
+                    cache_max_entries=-1,
+                    tts_cache_max_mb="lots",
+                    enable_in_previewer="yes",
+                    picker_languages="de",
+                )
+            )
+        message = str(ctx.exception)
+        for key in (
+            "cache_max_entries",
+            "tts_cache_max_mb",
+            "enable_in_previewer",
+            "picker_languages",
+        ):
+            self.assertIn(key, message)
+
+
+class CacheLimitTest(unittest.TestCase):
+    """`cache_max_entries` and `tts_cache_max_mb` share the same bounds behaviour."""
+
+    LIMITS = (
+        ("cache_max_entries", MAX_CACHE_ENTRIES),
+        ("tts_cache_max_mb", MAX_TTS_CACHE_MB),
+    )
+
+    def test_in_range_values_accepted(self):
+        for key, maximum in self.LIMITS:
+            for value in (1, 42, maximum):
+                with self.subTest(key=key, value=value):
+                    config = parse_config(config_with(**{key: value}))
+                    self.assertEqual(getattr(config, key), value)
+
+    def test_zero_means_unlimited(self):
+        for key, _maximum in self.LIMITS:
+            with self.subTest(key=key):
+                self.assertEqual(getattr(parse_config(config_with(**{key: 0})), key), 0)
+
+    def test_out_of_range_rejected(self):
+        for key, maximum in self.LIMITS:
+            for value in (-1, -5000, maximum + 1):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaises(ConfigurationError) as ctx:
+                        parse_config(config_with(**{key: value}))
+                    self.assertIn(key, str(ctx.exception))
+
+    def test_string_rejected(self):
+        for key, _maximum in self.LIMITS:
+            with self.subTest(key=key):
+                with self.assertRaises(ConfigurationError) as ctx:
+                    parse_config(config_with(**{key: "5000"}))
+                self.assertIn(key, str(ctx.exception))
+
+    def test_bool_is_not_accepted_as_a_number(self):
+        # `true` must not silently become an entry/megabyte budget of 1.
+        for key, _maximum in self.LIMITS:
+            with self.subTest(key=key):
+                with self.assertRaises(ConfigurationError) as ctx:
+                    parse_config(config_with(**{key: True}))
+                self.assertIn(key, str(ctx.exception))
+
+
+class ReviewerOptionTest(unittest.TestCase):
+    def test_previewer_flag_accepts_both_booleans(self):
+        for value in (True, False):
+            with self.subTest(value=value):
+                config = parse_config(config_with(enable_in_previewer=value))
+                self.assertIs(config.enable_in_previewer, value)
+
+    def test_previewer_flag_rejects_non_bool(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config(config_with(enable_in_previewer="yes"))
+        self.assertIn("enable_in_previewer", str(ctx.exception))
+
+    def test_shortcut_default(self):
+        self.assertEqual(parse_config(DEFAULTS).lookup_shortcut, "Ctrl+Shift+T")
+
+    def test_empty_shortcut_disables_the_feature(self):
+        self.assertEqual(parse_config(config_with(lookup_shortcut="")).lookup_shortcut, "")
+
+    def test_shortcut_is_trimmed(self):
+        config = parse_config(config_with(lookup_shortcut="  Ctrl+Alt+L  "))
+        self.assertEqual(config.lookup_shortcut, "Ctrl+Alt+L")
+
+    def test_whitespace_only_shortcut_becomes_disabled(self):
+        self.assertEqual(parse_config(config_with(lookup_shortcut="   ")).lookup_shortcut, "")
+
+
+class PickerLanguagesTest(unittest.TestCase):
+    def test_regional_codes_accepted_like_the_single_language_settings(self):
+        """Regression: the picker once rejected codes the languages accept.
+
+        `target_language` allows "en-GB", so listing that same code in the
+        picker must work too, or a user on en-GB cannot select their own
+        target from the dropdown.
+        """
+        config = parse_config(
+            config_with(target_language="en-GB", picker_languages=["de", "en_gb", "pt-BR"])
+        )
+        self.assertEqual(config.picker_languages, ("de", "en-GB", "pt-BR"))
+        self.assertIn(config.target_language, config.picker_languages)
+
+    def test_malformed_regional_codes_still_rejected(self):
+        for bad in (["e-n"], ["en-"], ["en-GB-oed"], ["en-G B"]):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ConfigurationError):
+                    parse_config(config_with(picker_languages=bad))
+
+    def test_default_list_is_used(self):
+        self.assertEqual(
+            parse_config(DEFAULTS).picker_languages, tuple(DEFAULTS["picker_languages"])
+        )
+
+    def test_valid_list_keeps_order(self):
+        config = parse_config(config_with(picker_languages=["fr", "de", "en"]))
+        self.assertEqual(config.picker_languages, ("fr", "de", "en"))
+
+    def test_codes_are_lower_cased(self):
+        config = parse_config(config_with(picker_languages=["DE", "En", " fr "]))
+        self.assertEqual(config.picker_languages, ("de", "en", "fr"))
+
+    def test_duplicates_removed_keeping_first_position(self):
+        config = parse_config(config_with(picker_languages=["de", "en", "DE", " en ", "fr"]))
+        self.assertEqual(config.picker_languages, ("de", "en", "fr"))
+
+    def test_three_letter_codes_accepted(self):
+        config = parse_config(config_with(picker_languages=["deu", "eng"]))
+        self.assertEqual(config.picker_languages, ("deu", "eng"))
+
+    def test_non_list_rejected(self):
+        for value in ("de", 5, {"de": True}):
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigurationError) as ctx:
+                    parse_config(config_with(picker_languages=value))
+                self.assertIn("picker_languages", str(ctx.exception))
+
+    def test_non_string_entry_rejected(self):
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config(config_with(picker_languages=["de", 7]))
+        self.assertIn("picker_languages", str(ctx.exception))
+
+    def test_invalid_codes_rejected(self):
+        for value in ("d", "germ", "d1", "e-n"):
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigurationError) as ctx:
+                    parse_config(config_with(picker_languages=["de", value]))
+                self.assertIn("picker_languages", str(ctx.exception))
+
+    def test_empty_list_falls_back_to_defaults(self):
+        """An empty picker would leave the user with no languages to switch to."""
+        config = parse_config(config_with(picker_languages=[]))
+        self.assertEqual(config.picker_languages, tuple(DEFAULTS["picker_languages"]))
+
+    def test_blank_entries_are_dropped_without_an_error(self):
+        config = parse_config(config_with(picker_languages=["de", "", "   ", "en"]))
+        self.assertEqual(config.picker_languages, ("de", "en"))
+
 
 class WebviewConfigTest(unittest.TestCase):
     def test_api_key_is_never_exposed_to_the_webview(self):
         config = parse_config(config_with(api_key="super-secret-key:fx"))
         payload = config.for_webview()
         self.assertNotIn("super-secret-key:fx", repr(payload))
+        # The payload is serialised into the reviewer page, so check the wire form too.
+        self.assertNotIn("super-secret-key:fx", json.dumps(payload))
         self.assertNotIn("apiKey", payload)
         self.assertNotIn("api_key", payload)
 
@@ -160,6 +337,15 @@ class WebviewConfigTest(unittest.TestCase):
         self.assertEqual(payload["sourceLanguage"], "de")
         self.assertEqual(payload["targetLanguage"], "en")
         self.assertEqual(payload["fontSize"], 14)
+
+    def test_webview_payload_exposes_reviewer_options(self):
+        payload = parse_config(DEFAULTS).for_webview()
+        self.assertEqual(payload["lookupShortcut"], "Ctrl+Shift+T")
+        self.assertEqual(payload["pickerLanguages"], DEFAULTS["picker_languages"])
+        # A plain list, not the internal tuple: the payload is handed to JSON
+        # encoders and to code that compares it against config.json values.
+        self.assertIsInstance(payload["pickerLanguages"], list)
+        json.loads(json.dumps(payload))  # must not raise
 
     def test_cache_lifetime_seconds(self):
         self.assertEqual(parse_config(config_with(cache_lifetime_days=2)).cache_lifetime_seconds, 172800)

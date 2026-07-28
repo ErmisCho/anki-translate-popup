@@ -1,13 +1,15 @@
-"""Cache read/write/expiry tests."""
+"""Cache read/write/expiry/size-limit tests."""
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from anki_translate_popup.cache import TranslationCache, make_key
+from anki_translate_popup.cache import TranslationCache, make_key, prune_audio_cache
 from anki_translate_popup.translation.base import TranslationResult
 
 
@@ -33,8 +35,12 @@ class CacheTestBase(unittest.TestCase):
         self.path = Path(self._tmp.name) / "nested" / "cache.sqlite"
         self.clock = FakeClock()
 
-    def make_cache(self, lifetime_seconds: int = 3600) -> TranslationCache:
-        return TranslationCache(self.path, lifetime_seconds, clock=self.clock)
+    def make_cache(
+        self, lifetime_seconds: int = 3600, max_entries: int = 0
+    ) -> TranslationCache:
+        return TranslationCache(
+            self.path, lifetime_seconds, clock=self.clock, max_entries=max_entries
+        )
 
 
 class KeyTest(unittest.TestCase):
@@ -167,6 +173,59 @@ class ExpiryTest(CacheTestBase):
         self.assertEqual(cache.count(), 0)
 
 
+class LimitTest(CacheTestBase):
+    def fill(self, cache: TranslationCache, count: int) -> None:
+        # One tick between writes: created_at decides eviction order.
+        for index in range(count):
+            self.clock.advance(1)
+            cache.set("deepl", "de", "en", f"wort{index}", result(f"word{index}"))
+
+    def test_below_the_limit_nothing_is_evicted(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=5)
+        self.fill(cache, 3)
+        self.assertEqual(cache.enforce_limit(), 0)
+        self.assertEqual(cache.count(), 3)
+
+    def test_at_the_limit_nothing_is_evicted(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=3)
+        self.fill(cache, 3)
+        self.assertEqual(cache.enforce_limit(), 0)
+        self.assertEqual(cache.count(), 3)
+
+    def test_enforce_limit_drops_the_oldest_rows(self):
+        # Fill without a limit, then reopen with one - as if the setting changed.
+        self.fill(self.make_cache(lifetime_seconds=0), 5)
+        cache = self.make_cache(lifetime_seconds=0, max_entries=2)
+        self.assertEqual(cache.enforce_limit(), 3)
+        self.assertEqual(cache.count(), 2)
+        self.assertIsNone(cache.get("deepl", "de", "en", "wort0"))
+        self.assertIsNone(cache.get("deepl", "de", "en", "wort2"))
+        self.assertIsNotNone(cache.get("deepl", "de", "en", "wort3"))
+        self.assertIsNotNone(cache.get("deepl", "de", "en", "wort4"))
+
+    def test_zero_max_entries_is_unlimited(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=0)
+        self.fill(cache, 10)
+        self.assertEqual(cache.enforce_limit(), 0)
+        self.assertEqual(cache.count(), 10)
+
+    def test_set_keeps_the_cache_within_the_limit(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=3)
+        self.fill(cache, 6)
+        # Eviction happens through plain writes, without an explicit call.
+        self.assertEqual(cache.count(), 3)
+        self.assertIsNone(cache.get("deepl", "de", "en", "wort0"))
+        self.assertIsNone(cache.get("deepl", "de", "en", "wort2"))
+        self.assertIsNotNone(cache.get("deepl", "de", "en", "wort5"))
+
+    def test_overwrite_does_not_count_twice(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=2)
+        for _ in range(4):
+            self.clock.advance(1)
+            cache.set("deepl", "de", "en", "das Haus", result())
+        self.assertEqual(cache.count(), 1)
+
+
 class ResilienceTest(CacheTestBase):
     def test_corrupt_database_does_not_raise(self):
         cache = self.make_cache()
@@ -206,9 +265,94 @@ class ResilienceTest(CacheTestBase):
         cache.set("deepl", "de", "en", "das Haus", result())
         cache.get("deepl", "de", "en", "das Haus")
         cache.purge_expired()
+        cache.enforce_limit()
         # Windows refuses to unlink a file that still has an open handle.
         self.path.unlink()
         self.assertFalse(self.path.exists())
+
+    def test_enforce_limit_survives_a_corrupt_database(self):
+        cache = self.make_cache(lifetime_seconds=0, max_entries=1)
+        cache.set("deepl", "de", "en", "das Haus", result())
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(self.path) + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+        self.path.write_bytes(b"this is definitely not a sqlite database")
+
+        with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+            self.assertEqual(cache.enforce_limit(), 0)
+
+
+class AudioPruneTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.directory = Path(self._tmp.name)
+
+    def write(self, name: str, size: int, mtime: float) -> Path:
+        path = self.directory / name
+        path.write_bytes(b"x" * size)
+        os.utime(path, (mtime, mtime))
+        return path
+
+    def test_under_the_limit_nothing_is_deleted(self):
+        kept = self.write("a.mp3", 100, 1)
+        self.assertEqual(prune_audio_cache(self.directory, 1000), 0)
+        self.assertTrue(kept.exists())
+
+    def test_oldest_files_go_first(self):
+        old = self.write("old.mp3", 100, 1)
+        middle = self.write("middle.mp3", 100, 2)
+        new = self.write("new.mp3", 100, 3)
+        self.assertEqual(prune_audio_cache(self.directory, 250), 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(middle.exists())
+        self.assertTrue(new.exists())
+
+    def test_deletes_until_it_fits(self):
+        paths = [self.write(f"{index}.mp3", 100, index) for index in range(5)]
+        self.assertEqual(prune_audio_cache(self.directory, 250), 3)
+        self.assertEqual([path.exists() for path in paths], [False, False, False, True, True])
+
+    def test_zero_max_bytes_is_unlimited(self):
+        kept = self.write("a.mp3", 1000, 1)
+        self.assertEqual(prune_audio_cache(self.directory, 0), 0)
+        self.assertTrue(kept.exists())
+
+    def test_missing_directory_is_not_an_error(self):
+        self.assertEqual(prune_audio_cache(self.directory / "nope", 10), 0)
+
+    def test_non_mp3_files_are_left_alone(self):
+        pending = self.write("pending.part", 5000, 1)
+        kept = self.write("a.mp3", 100, 2)
+        self.assertEqual(prune_audio_cache(self.directory, 100), 0)
+        self.assertTrue(pending.exists())
+        self.assertTrue(kept.exists())
+
+    def test_directories_are_ignored(self):
+        (self.directory / "nested.mp3").mkdir()
+        self.assertEqual(prune_audio_cache(self.directory, 1), 0)
+
+    def test_unstattable_file_is_skipped(self):
+        kept = self.write("a.mp3", 1000, 1)
+        real_stat = Path.stat
+
+        def fail_on_mp3(self: Path, *args, **kwargs):
+            if self.suffix == ".mp3":
+                raise OSError("vanished mid-prune")
+            return real_stat(self, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", fail_on_mp3):
+            with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+                self.assertEqual(prune_audio_cache(self.directory, 10), 0)
+        self.assertTrue(kept.exists())
+
+    def test_locked_file_is_skipped_not_raised(self):
+        locked = self.write("a.mp3", 1000, 1)
+        with mock.patch.object(Path, "unlink", side_effect=OSError("locked")):
+            with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+                self.assertEqual(prune_audio_cache(self.directory, 10), 0)
+        self.assertTrue(locked.exists())
 
 
 if __name__ == "__main__":

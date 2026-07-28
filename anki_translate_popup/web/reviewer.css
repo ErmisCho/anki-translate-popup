@@ -80,6 +80,12 @@
     box-sizing: border-box !important;
     font-size: 1em !important;
     float: none !important;
+    /* Cards style bare tags (`span { background: lime !important }`), so every
+       descendant starts transparent. The few elements that want a fill - the
+       result panel, the error banner, the dropdown, button hover - re-declare
+       it at higher specificity and still win. */
+    background-color: transparent !important;
+    background-image: none !important;
 }
 
 :root.night-mode .atp-popup,
@@ -114,7 +120,9 @@
 
 .atp-popup .atp-langs {
     /* Pushes everything after it to the right edge. */
-    margin: 0 8px 0 2px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    margin: 0 8px 0 0 !important;
     margin-right: auto !important;
     font-size: 0.76em !important;
     font-weight: 600 !important;
@@ -122,6 +130,109 @@
     text-transform: uppercase !important;
     letter-spacing: 0.05em !important;
     white-space: nowrap !important;
+}
+
+/*
+ * The three parts of the pair are buttons in everything but tag name. They
+ * keep the muted, compact look of the old static label and pick up the same
+ * faint tint as the icon buttons only under the pointer.
+ */
+.atp-popup .atp-lang-source,
+.atp-popup .atp-lang-swap,
+.atp-popup .atp-lang-target {
+    display: inline-block !important;
+    padding: 2px 4px !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    color: var(--atp-muted) !important;
+    /* Restated: the popup-wide reset switches text-transform off on every
+       descendant, which would otherwise beat the inherited uppercase. */
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+    outline: none !important;
+    user-select: none !important;
+    transition: background-color 110ms ease, color 110ms ease !important;
+}
+
+.atp-popup .atp-lang-swap {
+    padding: 2px 3px !important;
+    letter-spacing: normal !important;
+}
+
+.atp-popup .atp-lang-source:hover,
+.atp-popup .atp-lang-swap:hover,
+.atp-popup .atp-lang-target:hover {
+    background: var(--atp-hover) !important;
+    color: var(--atp-fg) !important;
+}
+
+.atp-popup .atp-lang-source:active,
+.atp-popup .atp-lang-swap:active,
+.atp-popup .atp-lang-target:active {
+    background: var(--atp-active) !important;
+}
+
+.atp-popup .atp-lang-source:focus-visible,
+.atp-popup .atp-lang-swap:focus-visible,
+.atp-popup .atp-lang-target:focus-visible {
+    background: var(--atp-hover) !important;
+    box-shadow: 0 0 0 2px var(--atp-accent) !important;
+    color: var(--atp-fg) !important;
+}
+
+/* -- language dropdown -- */
+
+.atp-popup .atp-menu {
+    position: absolute !important;
+    z-index: 1 !important;
+    min-width: 82px !important;
+    max-height: 13.5em !important;
+    overflow-y: auto !important;
+    margin: 0 !important;
+    padding: 4px !important;
+    background: var(--atp-bg) !important;
+    border: 1px solid var(--atp-border) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 6px 18px var(--atp-shadow) !important;
+}
+
+.atp-popup .atp-menu[hidden] {
+    display: none !important;
+}
+
+.atp-popup .atp-menu-item {
+    display: block !important;
+    margin: 0 !important;
+    padding: 4px 8px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 5px !important;
+    font-size: 0.78em !important;
+    font-weight: 600 !important;
+    color: var(--atp-fg) !important;
+    letter-spacing: 0.05em !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+    outline: none !important;
+    user-select: none !important;
+}
+
+.atp-popup .atp-menu-item:hover {
+    background: var(--atp-hover) !important;
+}
+
+.atp-popup .atp-menu-item:focus-visible {
+    background: var(--atp-hover) !important;
+    box-shadow: 0 0 0 2px var(--atp-accent) !important;
+}
+
+.atp-popup .atp-menu-item[aria-selected="true"] {
+    color: var(--atp-accent) !important;
 }
 
 .atp-popup .atp-actions {

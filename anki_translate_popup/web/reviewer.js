@@ -26,6 +26,8 @@
         speechRate: 0.9,
         fontSize: 14,
         debug: false,
+        lookupShortcut: "Ctrl+Shift+T",
+        pickerLanguages: ["de", "en", "fr", "es", "it", "nl", "pt", "pl", "tr", "el", "ru"],
     };
 
     var config = Object.assign({}, DEFAULTS, globalThis.ankiTranslatePopupConfig || {});
@@ -35,6 +37,12 @@
     var selectedText = "";
     var lastTranslation = "";
     var lastRect = null;
+    // The element whose picker is open, or null. Doubles as the "is a dropdown
+    // open?" flag, which Escape needs so it closes the menu before the popup.
+    var pickerTrigger = null;
+    // Last language the provider actually reported, so a swap away from "auto"
+    // has something concrete to make the new target.
+    var detectedSource = "";
     var requestCounter = 0;
     var pendingRequestId = 0;
     var pendingSpeechId = 0;
@@ -101,7 +109,16 @@
     // Constant markup only. All dynamic values are assigned via textContent.
     var SKELETON = [
         '<div class="atp-header">',
-        '  <span class="atp-langs"></span>',
+        '  <span class="atp-langs">',
+        '    <span class="atp-lang-source" tabindex="0" role="button"',
+        '          aria-haspopup="listbox" aria-expanded="false"',
+        '          title="Change source language" aria-label="Change source language"></span>',
+        '    <span class="atp-lang-swap" tabindex="0" role="button"',
+        '          title="Swap languages" aria-label="Swap languages">&rarr;</span>',
+        '    <span class="atp-lang-target" tabindex="0" role="button"',
+        '          aria-haspopup="listbox" aria-expanded="false"',
+        '          title="Change target language" aria-label="Change target language"></span>',
+        "  </span>",
         '  <div class="atp-actions">',
         '    <button type="button" class="atp-btn atp-translate"',
         '            title="Translate" aria-label="Translate">' + ICON_TRANSLATE + "</button>",
@@ -115,6 +132,9 @@
         '<div class="atp-result" hidden></div>',
         '<div class="atp-status" hidden></div>',
         '<div class="atp-examples" hidden></div>',
+        // Inside the popup on purpose: the popup swallows mousedown/mouseup, so
+        // a click in the dropdown must not look like a click on the card.
+        '<div class="atp-menu" role="listbox" hidden></div>',
     ].join("");
 
     function build() {
@@ -127,7 +147,10 @@
         root.innerHTML = SKELETON;
 
         el = {
-            langs: root.querySelector(".atp-langs"),
+            langSource: root.querySelector(".atp-lang-source"),
+            langSwap: root.querySelector(".atp-lang-swap"),
+            langTarget: root.querySelector(".atp-lang-target"),
+            menu: root.querySelector(".atp-menu"),
             close: root.querySelector(".atp-close"),
             result: root.querySelector(".atp-result"),
             status: root.querySelector(".atp-status"),
@@ -154,9 +177,29 @@
             copyToClipboard();
         });
 
+        onActivate(el.langSource, function () {
+            togglePicker("source", el.langSource);
+        });
+        onActivate(el.langTarget, function () {
+            togglePicker("target", el.langTarget);
+        });
+        onActivate(el.langSwap, function () {
+            closePicker();
+            swapLanguages();
+        });
+
         // Selecting inside the popup must not re-trigger the selection flow.
         root.addEventListener("mousedown", function (event) {
             event.stopPropagation();
+            // A click elsewhere in the popup dismisses an open dropdown, but
+            // clicking its own trigger has to reach the toggle below.
+            if (
+                pickerTrigger &&
+                !el.menu.contains(event.target) &&
+                !pickerTrigger.contains(event.target)
+            ) {
+                closePicker();
+            }
         });
         root.addEventListener("mouseup", function (event) {
             event.stopPropagation();
@@ -200,7 +243,154 @@
     }
 
     function setLanguages(source, target) {
-        el.langs.textContent = String(source) + " → " + String(target);
+        el.langSource.textContent = languageLabel(source);
+        el.langTarget.textContent = languageLabel(target);
+    }
+
+    // -- language pair --------------------------------------------------------
+
+    function languageLabel(code) {
+        return String(code == null ? "" : code).toUpperCase();
+    }
+
+    /** Enter and Space must do what a click does on the role="button" spans. */
+    function onActivate(node, handler) {
+        node.addEventListener("click", function (event) {
+            event.preventDefault();
+            handler();
+        });
+        node.addEventListener("keydown", function (event) {
+            if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
+                return; // never swallow another key
+            }
+            event.preventDefault();
+            handler();
+        });
+    }
+
+    /**
+     * Codes offered for one side of the pair: the configured list, plus the
+     * current value so it is always selectable, plus "auto" for the source
+     * only - "auto" as a target is not a valid configuration.
+     */
+    function languageOptions(which) {
+        var configured = config.pickerLanguages;
+        var wanted = (which === "source" ? ["auto"] : []).concat(
+            Array.isArray(configured) ? configured : [],
+            [which === "source" ? config.sourceLanguage : config.targetLanguage]
+        );
+        var seen = Object.create(null);
+        var out = [];
+        wanted.forEach(function (value) {
+            var code = String(value == null ? "" : value).trim().toLowerCase();
+            if (!code || seen[code]) {
+                return;
+            }
+            if (code === "auto" && which !== "source") {
+                return;
+            }
+            seen[code] = true;
+            out.push(code);
+        });
+        return out;
+    }
+
+    function togglePicker(which, trigger) {
+        if (pickerTrigger === trigger) {
+            closePicker();
+            return;
+        }
+        openPicker(which, trigger);
+    }
+
+    function openPicker(which, trigger) {
+        closePicker();
+        var current = which === "source" ? config.sourceLanguage : config.targetLanguage;
+
+        el.menu.textContent = "";
+        languageOptions(which).forEach(function (code) {
+            var item = document.createElement("div");
+            item.className = "atp-menu-item";
+            item.setAttribute("role", "option");
+            item.setAttribute("aria-selected", code === current ? "true" : "false");
+            item.tabIndex = 0;
+            item.textContent = code === "auto" ? "Auto" : languageLabel(code);
+            onActivate(item, function () {
+                closePicker();
+                if (which === "source") {
+                    applyLanguages(code, config.targetLanguage);
+                } else {
+                    applyLanguages(config.sourceLanguage, code);
+                }
+            });
+            el.menu.appendChild(item);
+        });
+
+        // Anchored under its own trigger; the popup is positioned, so these
+        // offsets are already relative to it.
+        el.menu.style.left = trigger.offsetLeft + "px";
+        el.menu.style.top = trigger.offsetTop + trigger.offsetHeight + 4 + "px";
+        el.menu.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+        pickerTrigger = trigger;
+    }
+
+    function closePicker() {
+        if (!pickerTrigger) {
+            return;
+        }
+        var trigger = pickerTrigger;
+        pickerTrigger = null;
+        var focusWasInside = !!document.activeElement && el.menu.contains(document.activeElement);
+        el.menu.hidden = true;
+        el.menu.textContent = "";
+        trigger.setAttribute("aria-expanded", "false");
+        if (focusWasInside) {
+            trigger.focus();
+        }
+    }
+
+    function isPickerOpen() {
+        return !!pickerTrigger;
+    }
+
+    /**
+     * Adopt a pair, persist it, and look the selection up again. The old
+     * answer is dropped first: a stale translation under a new language pair
+     * would read as a genuine result.
+     */
+    function applyLanguages(source, target) {
+        config.sourceLanguage = source;
+        config.targetLanguage = target;
+        setLanguages(source, target);
+        setResult("");
+        setExamples(null);
+        setStatus("");
+        if (typeof pycmd === "function") {
+            pycmd(
+                BRIDGE + "set_languages:" + JSON.stringify({ source: source, target: target })
+            );
+        }
+        requestTranslation();
+        reposition();
+        log("languages set to", source, "->", target);
+    }
+
+    function swapLanguages() {
+        var source = config.sourceLanguage;
+        var target = config.targetLanguage;
+        if (source !== "auto") {
+            applyLanguages(target, source);
+            return;
+        }
+        // "auto" cannot become a target, so it is resolved to whatever the
+        // provider last reported. Before the first translation nothing is
+        // known, so the source stays automatic rather than becoming invalid.
+        if (!detectedSource || detectedSource === "auto") {
+            applyLanguages("auto", target);
+            return;
+        }
+        applyLanguages(target, detectedSource);
     }
 
     /**
@@ -259,6 +449,7 @@
 
         selectedText = text;
         pendingRequestId = 0;
+        closePicker();
         setResult("");
         setStatus("");
         setExamples(null);
@@ -288,6 +479,7 @@
             return;
         }
         stopSpeech();
+        closePicker();
         pendingRequestId = 0;
         popup.hidden = true;
         popup.classList.remove("atp-visible");
@@ -381,6 +573,11 @@
                 notes.push("from cache");
             }
             setStatus(notes.join(" · "), "info");
+            // Remember the resolved source: with "auto" configured this is the
+            // only place the real language is ever named, and a swap needs it.
+            if (payload.sourceLang && payload.sourceLang !== "auto") {
+                detectedSource = String(payload.sourceLang);
+            }
             setLanguages(payload.sourceLang, payload.targetLang);
             setResult(payload.text);
             setExamples(payload.examples);
@@ -397,6 +594,7 @@
     /** Called from Python when the user edits the add-on configuration. */
     function onConfigChanged(next) {
         config = Object.assign({}, DEFAULTS, next || {});
+        shortcut = parseShortcut(config.lookupShortcut);
         if (popup) {
             applyFontSize();
             if (isOpen() && !lastTranslation) {
@@ -764,29 +962,35 @@
         return !!popup && !!node && popup.contains(node.nodeType === 1 ? node : node.parentNode);
     }
 
+    /**
+     * Open the popup for whatever is selected right now. Shared by the mouse
+     * and the keyboard shortcut so both see exactly the same text and anchor.
+     */
+    function lookupSelection() {
+        var selection = globalThis.getSelection ? getSelection() : null;
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return;
+        }
+        var text = normaliseWhitespace(selectionText(selection));
+        if (!text) {
+            return; // empty or whitespace-only
+        }
+        if (insidePopup(selection.anchorNode)) {
+            return;
+        }
+        var rect = selectionRect(selection);
+        if (!rect) {
+            return;
+        }
+        show(text, rect);
+    }
+
     function handleMouseUp(event) {
         if (insidePopup(event.target)) {
             return;
         }
         // Let Anki handle the click first; read the selection afterwards.
-        setTimeout(function () {
-            var selection = globalThis.getSelection ? getSelection() : null;
-            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-                return;
-            }
-            var text = normaliseWhitespace(selectionText(selection));
-            if (!text) {
-                return; // empty or whitespace-only
-            }
-            if (insidePopup(selection.anchorNode)) {
-                return;
-            }
-            var rect = selectionRect(selection);
-            if (!rect) {
-                return;
-            }
-            show(text, rect);
-        }, 0);
+        setTimeout(lookupSelection, 0);
     }
 
     function handleMouseDown(event) {
@@ -796,13 +1000,82 @@
         hide(); // "click outside closes"; a drag-select re-opens it on mouseup
     }
 
-    function handleKeyDown(event) {
-        if (event.key !== "Escape" || !isOpen()) {
-            return; // never swallow any other key - Anki's shortcuts must work
+    // -- keyboard -------------------------------------------------------------
+
+    var MODIFIER_ALIASES = {
+        ctrl: "ctrl",
+        control: "ctrl",
+        alt: "alt",
+        option: "alt",
+        shift: "shift",
+        meta: "meta",
+        cmd: "meta",
+        command: "meta",
+        super: "meta",
+        win: "meta",
+    };
+
+    /**
+     * "Ctrl+Shift+T" -> {ctrl: true, shift: true, alt: false, meta: false,
+     * key: "t"}. Anything without exactly one non-modifier key yields null,
+     * which simply disables the shortcut.
+     */
+    function parseShortcut(spec) {
+        var parts = String(spec == null ? "" : spec).split("+");
+        var parsed = { ctrl: false, alt: false, shift: false, meta: false, key: "" };
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i].trim().toLowerCase();
+            if (!part) {
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(MODIFIER_ALIASES, part)) {
+                parsed[MODIFIER_ALIASES[part]] = true;
+            } else if (parsed.key) {
+                return null; // two plain keys: not a shortcut we can honour
+            } else {
+                parsed.key = part;
+            }
         }
-        event.preventDefault();
-        event.stopPropagation();
-        hide();
+        return parsed.key ? parsed : null;
+    }
+
+    var shortcut = parseShortcut(config.lookupShortcut);
+
+    function matchesShortcut(event) {
+        if (!shortcut) {
+            return false;
+        }
+        return (
+            event.ctrlKey === shortcut.ctrl &&
+            event.altKey === shortcut.alt &&
+            event.shiftKey === shortcut.shift &&
+            event.metaKey === shortcut.meta &&
+            String(event.key || "").toLowerCase() === shortcut.key
+        );
+    }
+
+    function handleKeyDown(event) {
+        if (event.key === "Escape") {
+            // One Escape per layer: the dropdown first, the popup second.
+            if (isPickerOpen()) {
+                event.preventDefault();
+                event.stopPropagation();
+                closePicker();
+                return;
+            }
+            if (isOpen()) {
+                event.preventDefault();
+                event.stopPropagation();
+                hide();
+            }
+            return;
+        }
+        // Everything else falls through untouched unless it is exactly the
+        // configured shortcut - Anki's reviewer keys must keep working.
+        if (matchesShortcut(event)) {
+            event.preventDefault();
+            lookupSelection();
+        }
     }
 
     document.addEventListener("mousedown", handleMouseDown, true);

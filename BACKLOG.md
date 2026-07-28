@@ -1,73 +1,84 @@
 # Backlog — Translate & Pronounce Popup
 
-Ordered roughly by value. Anything here is deliberately *not* built yet.
+---
+
+## Done
+
+### ✅ 1. Interactive language pair
+
+`DE → EN` in the header is now three controls: click the source or target code
+to pick a language, click the **→** to swap and re-translate. Choices persist
+through a `set_languages` bridge command, validated in Python before it is
+written so an invalid pair can never be saved. Swapping while the source is
+`auto` uses the language the provider actually detected, because `auto` is not
+a legal target. Languages offered come from `picker_languages`.
+
+### ✅ 2. Cache size limits
+
+`cache_max_entries` (default 5000) caps the translation cache, evicting oldest
+first; `tts_cache_max_mb` (default 100) caps the synthesised-audio folder.
+Both accept `0` for unlimited. Eviction runs as a single indexed `DELETE`
+inside the write that `set()` already performs, so the table sits exactly at
+the limit rather than sawtoothing above it.
+
+### ✅ 4. Previewer support
+
+The popup now works in the browser's card previewer as well as the reviewer —
+both render a card with `Reviewer.revHtml()`, so one implementation covers
+them. Gated by `enable_in_previewer`. Deliberately **not** added to the
+card-layout or note editors: those are text-editing surfaces where a selection
+popup fights with typing.
+
+### ✅ 5. Keyboard shortcut
+
+`lookup_shortcut` (default `Ctrl+Shift+T`, `""` disables) re-opens the popup
+for the current selection.
+
+Note the original framing — "keyboard-driven *selection*" — was not achievable:
+Anki's reviewer has no text caret, so Shift+arrow cannot create a selection in
+the first place. The shortcut acts on a selection you already made.
 
 ---
 
-## 1. Make the language pair interactive
+## Closed without building
 
-**Status:** next up
-**Touches:** `web/reviewer.js`, `web/reviewer.css`, `__init__.py`, `config.py`
+### ❌ 3. Offline TTS fallback via Qt
 
-Today `DE → EN` in the popup header is a static label. Make it a control.
+**Rejected on evidence.** The item said to probe before building, and the probe
+says it would buy nothing. `QTextToSpeech` reports the same voices the webview
+already sees, on both Windows engines:
 
-**Wanted**
+```
+sapi:  locales=['en_US']  voices=['Microsoft Zira Desktop', 'Microsoft David Desktop']
+winrt: locales=['en_US']  voices=['Microsoft David', 'Microsoft Zira', 'Microsoft Mark']
+```
 
-- Clicking **DE** opens a small picker to change the source language for this
-  lookup, without opening Anki's add-on config.
-- Clicking **EN** does the same for the target language.
-- Clicking the **→** arrow swaps the two languages and re-runs the lookup, so
-  reading an English card in a German deck is one click.
+Neither reaches the Narrator "natural voices" (`MicrosoftWindows.Voice.de-DE.Katja`),
+which are registered nowhere any third-party app can see. A Qt provider would
+add a config option and a code path that fail in exactly the cases the existing
+system voice already fails in. Only installing a classic SAPI/OneCore voice, or
+the online provider, actually helps.
 
-**Design notes**
-
-- The swap must re-translate, not just relabel — the cached result under the
-  old pair is not the answer for the new one. Cache keys already include both
-  languages (`cache.make_key`), so a swap is a clean miss rather than a wrong
-  hit.
-- `source_language` accepts `auto`; the target must not. A swap while the
-  source is `auto` needs a rule — probably resolve `auto` to the language the
-  provider actually detected (the response carries it as `sourceLang`) and swap
-  that, rather than refusing.
-- Decide whether a change is per-lookup or persisted. Persisting means writing
-  through `mw.addonManager.writeConfig`, which fires `setConfigUpdatedAction`
-  and re-pushes config to the webview — that path already exists but would need
-  a guard against a feedback loop.
-- The picker list should come from Python (it knows what each provider
-  supports) rather than being hard-coded in JS. DeepL, LibreTranslate and
-  Google support different sets.
-- Keyboard access: the header controls need `tabindex` and Enter/Space
-  handling, and Escape must still close the popup rather than the picker only.
+Revisit only if Qt gains access to natural voices.
 
 ---
 
-## 2. Cache size limit
+## Open
 
-`user_files/cache.sqlite` and `user_files/tts/` grow without bound. Entries
-expire by age (`cache_lifetime_days`) but nothing caps total size. Add a row
-count / byte ceiling with LRU eviction, or at least surface the size in the
-config screen.
+### 6. Cache the example lookups
 
----
+Translations and audio are cached; Tatoeba lookups are not, so the same word
+re-queries the corpus (~0.2s) every time. Reuse `TranslationCache` or add a
+small sibling table.
 
-## 3. Offline TTS fallback via Qt
+### 7. Examples when the source language is `auto`
 
-`tts_provider: "system"` depends on the webview seeing a voice, and Chromium
-cannot see Narrator "natural voices". `QTextToSpeech` on the Python side may
-reach voices the webview cannot. Worth probing before building: on this
-machine Qt reported the same `en_US`-only list, so it may buy nothing.
+Tatoeba needs a concrete ISO 639-3 code, so examples are skipped entirely while
+`source_language` is `auto`. The translation response already carries the
+detected language — fetch examples with that instead of skipping.
 
----
+### 8. Per-deck or per-notetype language pairs
 
-## 4. Selection in other screens
-
-The popup only exists in the reviewer. The card browser and the previewer use
-different webviews and would need their own `webview_will_set_content` wiring.
-
----
-
-## 5. Keyboard-driven selection
-
-Selection is mouse-only by design — the add-on listens to `mouseup` rather than
-binding keys Anki reserves. A safe opt-in shortcut (something unbound, checked
-against `Reviewer._shortcutKeys()`) would let keyboard users trigger a lookup.
+A German deck and a Spanish deck currently share one global pair. Anki exposes
+the current deck via `mw.col.decks.current()`; a mapping would remove most
+manual swapping.
