@@ -538,6 +538,27 @@ To publish on AnkiWeb, upload the `.ankiaddon` at
 <https://ankiweb.net/shared/addons/> — the `package` field in `manifest.json`
 must stay stable across versions, and `human_version` should be bumped.
 
+### Cutting a release
+
+`release.py` does the whole sequence — tests, version bump, build, commit, tag,
+push, GitHub release with the package attached:
+
+```powershell
+& "$env:LOCALAPPDATA\AnkiProgramFiles\.venv\Scripts\python.exe" release.py 1.1.0
+```
+
+Run it with the same interpreter as the tests: it reuses `sys.executable` for
+the suite and the build.
+
+It refuses to start unless the tree is clean, the branch is `main`, the version
+is newer than the released one, and no commit since the last tag carries a
+co-author trailer. Tests run *before* the bump, so a failure leaves the tree
+untouched.
+
+AnkiWeb is not automated — it has no API. The script ends by printing which
+file to upload to which listing. Re-upload on the **existing** listing rather
+than creating a second one, or nobody receives the update.
+
 ---
 
 ## Licence
