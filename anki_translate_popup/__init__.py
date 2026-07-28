@@ -142,6 +142,35 @@ def _get_cache(config: AddonConfig) -> Optional[TranslationCache]:
 # -- translation (worker thread) --------------------------------------------
 
 
+def _detect_language(config: AddonConfig, text: str) -> str:
+    """The language of a card side, asked of the provider and cached.
+
+    Only reached when nothing in the configuration names one - see
+    AddonConfig.speech_language_needs_detection. Cached because a card comes
+    round again and again, and a detection that costs a request every review
+    would be a poor trade for a voice.
+
+    Returns "" when it cannot be found, which the caller reads as "use the
+    configured language": unprompted playback must never fail loudly.
+    """
+    text = text.strip()
+    if not text:
+        return ""
+    cache = _get_cache(config)
+    if cache is not None:
+        cached = cache.get_detection(config.translation_provider, text)
+        if cached:
+            return cached
+    try:
+        detected = build_translator(config).detect(text)
+    except (TranslationError, ConfigurationError) as exc:
+        logger.debug("Language detection failed, falling back: %s", exc)
+        return ""
+    if detected and cache is not None:
+        cache.set_detection(config.translation_provider, text, detected)
+    return detected
+
+
 def _translate_with(config: AddonConfig, provider: str, text: str) -> Dict[str, Any]:
     """Cache-aware translation through one named provider.
 
@@ -554,9 +583,16 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
         logger.debug("Card side too long to auto-pronounce (%s chars)", len(text))
         return
 
-    lang = config.speech_language_for(is_answer=is_answer)
+    # Resolved inside op rather than here: with the pair on "auto" this asks
+    # the provider, which is a network call and has no business on the UI thread.
+    needs_detection = config.speech_language_needs_detection(is_answer=is_answer)
 
     def op(_col: Any) -> str:
+        lang = (
+            config.with_configured_region(_detect_language(config, text))
+            if needs_detection
+            else config.speech_language_for(is_answer=is_answer)
+        )
         return _synthesize_blocking(text, lang)
 
     def success(path: str) -> None:

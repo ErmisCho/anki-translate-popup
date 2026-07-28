@@ -40,6 +40,9 @@ class TranslationRequest:
     target_lang: str  # ISO code such as "en"
 
 
+#: Enough text to tell one language from another without sending a whole card.
+DETECTION_SAMPLE_CHARS = 200
+
 LanguageSupport = Tuple[FrozenSet[str], FrozenSet[str]]
 """Provider-supported source and target language codes, respectively."""
 
@@ -80,6 +83,26 @@ class Translator(abc.ABC):
     def supported_languages(self) -> Optional[LanguageSupport]:
         """Return supported source/target codes, or ``None`` when unavailable."""
         return None
+
+    def detect(self, text: str) -> str:
+        """The language ``text`` is written in, or ``""`` when unknown.
+
+        Translating with ``source_lang="auto"`` *is* the detection: every
+        provider reports what it detected, and DeepL offers no separate
+        endpoint at all, so a dedicated call would be a second request for an
+        answer the first one already gives.
+
+        Only a sample is sent. A language is identifiable long before a card
+        is, and the shorter the text the less of it leaves the machine.
+        """
+        sample = text.strip()[:DETECTION_SAMPLE_CHARS]
+        if not sample:
+            return ""
+        result = self.translate(
+            TranslationRequest(text=sample, source_lang="auto", target_lang="en")
+        )
+        detected = (result.source_lang or "").strip().lower()
+        return "" if detected in ("", "auto") else detected
 
     # -- shared HTTP plumbing -------------------------------------------------
 

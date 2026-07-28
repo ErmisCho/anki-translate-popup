@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS example_lookups (
 );
 CREATE INDEX IF NOT EXISTS idx_example_lookups_created_at
     ON example_lookups (created_at);
+
+CREATE TABLE IF NOT EXISTS detections (
+    key TEXT PRIMARY KEY,
+    lang TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_detections_created_at
+    ON detections (created_at);
 """
 
 
@@ -261,6 +269,54 @@ class TranslationCache:
         except (sqlite3.Error, TypeError):
             logger.exception("Example cache write failed")
 
+    def get_detection(self, provider: str, text: str) -> Optional[str]:
+        """Return a cached language for ``text``, or ``None`` on a miss.
+
+        Scoped by provider, like translations are: two providers can disagree
+        about a short phrase, and neither answer should stand in for the other.
+        """
+        key = make_key(provider, "detect", "", text.strip())
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT lang, created_at FROM detections WHERE key = ?", (key,)
+                ).fetchone()
+        except sqlite3.Error:
+            logger.exception("Detection cache lookup failed")
+            return None
+
+        if row is None:
+            return None
+        lang, created_at = row
+        if self._is_expired(created_at):
+            self._delete_detection(key)
+            return None
+        return str(lang)
+
+    def set_detection(self, provider: str, text: str, lang: str) -> None:
+        """Store a detected language. Empty results are not cached: they mean
+        the provider could not say, not that the text has no language."""
+        if not lang:
+            return
+        key = make_key(provider, "detect", "", text.strip())
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO detections (key, lang, created_at) "
+                    "VALUES (?, ?, ?)",
+                    (key, lang, self._clock()),
+                )
+                self._evict(conn, "detections")
+        except sqlite3.Error:
+            logger.exception("Detection cache write failed")
+
+    def _delete_detection(self, key: str) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM detections WHERE key = ?", (key,))
+        except sqlite3.Error:
+            logger.exception("Detection cache delete failed")
+
     def _evict(self, conn: sqlite3.Connection, table: str) -> int:
         """Delete everything but the newest ``max_entries`` rows from ``table``."""
         if self._max_entries == 0:
@@ -299,7 +355,10 @@ class TranslationCache:
                 examples = conn.execute(
                     "DELETE FROM example_lookups WHERE created_at < ?", (cutoff,)
                 ).rowcount
-                return (translations or 0) + (examples or 0)
+                detections = conn.execute(
+                    "DELETE FROM detections WHERE created_at < ?", (cutoff,)
+                ).rowcount
+                return (translations or 0) + (examples or 0) + (detections or 0)
         except sqlite3.Error:
             logger.exception("Cache purge failed")
             return 0
@@ -310,7 +369,7 @@ class TranslationCache:
             return 0
         try:
             with self._connect() as conn:
-                return self._evict(conn, "translations")
+                return self._evict(conn, "translations") + self._evict(conn, "detections")
         except sqlite3.Error:
             logger.exception("Cache limit enforcement failed")
             return 0
@@ -320,7 +379,8 @@ class TranslationCache:
             with self._connect() as conn:
                 translations = conn.execute("DELETE FROM translations").rowcount
                 examples = conn.execute("DELETE FROM example_lookups").rowcount
-                return (translations or 0) + (examples or 0)
+                detections = conn.execute("DELETE FROM detections").rowcount
+                return (translations or 0) + (examples or 0) + (detections or 0)
         except sqlite3.Error:
             logger.exception("Cache clear failed")
             return 0

@@ -387,3 +387,70 @@ class AudioPruneTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DetectionCacheTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.clock = FakeClock()
+        self.path = Path(self.dir.name) / "cache.sqlite"
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def cache(self, lifetime=3600, max_entries=0):
+        return TranslationCache(
+            self.path, lifetime, clock=self.clock, max_entries=max_entries
+        )
+
+    def test_round_trip(self):
+        cache = self.cache()
+        cache.set_detection("deepl", "das Haus", "de")
+        self.assertEqual(cache.get_detection("deepl", "das Haus"), "de")
+
+    def test_miss_returns_none(self):
+        self.assertIsNone(self.cache().get_detection("deepl", "never seen"))
+
+    def test_surrounding_whitespace_is_the_same_text(self):
+        cache = self.cache()
+        cache.set_detection("deepl", "das Haus", "de")
+        self.assertEqual(cache.get_detection("deepl", "  das Haus  "), "de")
+
+    def test_providers_do_not_share_answers(self):
+        """Two providers can disagree; neither may answer for the other."""
+        cache = self.cache()
+        cache.set_detection("deepl", "das Haus", "de")
+        self.assertIsNone(cache.get_detection("google_unofficial", "das Haus"))
+
+    def test_empty_detection_is_not_cached(self):
+        """'' means the provider could not say, not that there is no language."""
+        cache = self.cache()
+        cache.set_detection("deepl", "das Haus", "")
+        self.assertIsNone(cache.get_detection("deepl", "das Haus"))
+
+    def test_expiry(self):
+        cache = self.cache(lifetime=60)
+        cache.set_detection("deepl", "das Haus", "de")
+        self.clock.advance(61)
+        self.assertIsNone(cache.get_detection("deepl", "das Haus"))
+
+    def test_purge_and_clear_reach_detections(self):
+        cache = self.cache(lifetime=60)
+        cache.set_detection("deepl", "das Haus", "de")
+        self.clock.advance(61)
+        self.assertEqual(cache.purge_expired(), 1)
+        cache.set_detection("deepl", "das Haus", "de")
+        self.assertEqual(cache.clear(), 1)
+        self.assertIsNone(cache.get_detection("deepl", "das Haus"))
+
+    def test_row_cap_evicts_oldest(self):
+        cache = self.cache(max_entries=2)
+        for word, lang in (("eins", "de"), ("two", "en"), ("tres", "es")):
+            cache.set_detection("deepl", word, lang)
+            self.clock.advance(1)
+        self.assertIsNone(cache.get_detection("deepl", "eins"))
+        self.assertEqual(cache.get_detection("deepl", "tres"), "es")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

@@ -448,6 +448,43 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class DetectionNeededTest(unittest.TestCase):
+    """When the config names no language, the provider has to be asked."""
+
+    def config(self, **overrides):
+        raw = dict(DEFAULTS)
+        raw.update(overrides)
+        return parse_config(raw)
+
+    def test_auto_source_needs_detection_for_the_front(self):
+        config = self.config(source_language="auto")
+        self.assertTrue(config.speech_language_needs_detection(is_answer=False))
+        # The target can never be "auto", so the back is always known.
+        self.assertFalse(config.speech_language_needs_detection(is_answer=True))
+
+    def test_a_named_pair_needs_nothing(self):
+        config = self.config(source_language="de", target_language="en")
+        self.assertFalse(config.speech_language_needs_detection(is_answer=False))
+
+    def test_an_explicit_voice_language_beats_an_auto_pair(self):
+        """Asked for French, the side is French - there is nothing to detect."""
+        config = self.config(source_language="auto", front_speech_language="fr")
+        self.assertFalse(config.speech_language_needs_detection(is_answer=False))
+        self.assertEqual(config.speech_language_for(is_answer=False), "fr")
+
+    def test_a_detected_language_keeps_the_configured_region(self):
+        config = self.config(speech_language="de-AT")
+        self.assertEqual(config.with_configured_region("de"), "de-AT")
+
+    def test_a_detected_language_of_its_own_is_used_as_is(self):
+        config = self.config(speech_language="de-AT")
+        self.assertEqual(config.with_configured_region("el"), "el")
+
+    def test_nothing_detected_falls_back_to_the_configured_language(self):
+        config = self.config(speech_language="de-AT")
+        self.assertEqual(config.with_configured_region(""), "de-AT")
+
+
 class PushCardTextTest(unittest.TestCase):
     """What the pronounce shortcuts are given to say."""
 

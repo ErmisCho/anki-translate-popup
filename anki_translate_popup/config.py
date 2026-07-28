@@ -132,16 +132,39 @@ class AddonConfig:
         declares. It falls back to ``speech_language`` when the source is
         itself ``auto``, since there is then no configured language to use.
         """
+        chosen = self._pair_speech_language(is_answer=is_answer)
+        if chosen == "auto":
+            return self.speech_language
+        return self.with_configured_region(chosen)
+
+    def _pair_speech_language(self, *, is_answer: bool) -> str:
+        """The side's language as configured, still ``auto`` if nothing says."""
         chosen = self.back_speech_language if is_answer else self.front_speech_language
         if chosen == "auto":
             chosen = self.target_language if is_answer else self.source_language
-        if chosen == "auto":
-            return self.speech_language
-        # Keep the region when it is for the same language: a user who asked
-        # for de-AT wants de-AT, not the bare "de" the pair is written in.
-        if _base_language(chosen) == _base_language(self.speech_language):
-            return self.speech_language
         return chosen
+
+    def speech_language_needs_detection(self, *, is_answer: bool) -> bool:
+        """Whether the language of this side can only be found by looking.
+
+        True when neither the voice setting nor the pair names one, which is
+        the case a deck of mixed or unknown languages lands in. The caller has
+        to ask the provider; the config has nothing left to offer.
+        """
+        return self._pair_speech_language(is_answer=is_answer) == "auto"
+
+    def with_configured_region(self, lang: str) -> str:
+        """Prefer the configured region for the same language: de -> de-AT.
+
+        A user who asked for de-AT wants de-AT, not the bare "de" a pair is
+        written in or a provider detects. An empty language means nothing is
+        known, so the configured one stands.
+        """
+        if not lang:
+            return self.speech_language
+        if _base_language(lang) == _base_language(self.speech_language):
+            return self.speech_language
+        return lang
 
     def for_deck(self, deck_id: Optional[int]) -> "AddonConfig":
         """Apply a saved deck pair, falling back to the global pair."""

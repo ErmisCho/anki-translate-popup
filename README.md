@@ -177,6 +177,13 @@ local. DeepL and LibreTranslate probe their language-list API when the reviewer
 opens; this sends no card text, though DeepL authenticates the probe with your
 API key.
 
+One case sends text you never selected: with **both** `source_language` and the
+side's voice language on `auto`, card auto-pronounce asks the provider to
+identify the card side, because nothing in the configuration names its
+language. A 200-character sample goes, the answer is cached so a card costs at
+most one detection, and naming a real `source_language` — or turning off
+`auto_pronounce_card` — stops it entirely.
+
 | Provider | Where text goes |
 | --- | --- |
 | `google_unofficial` **(default)** | `translate.googleapis.com`. **Undocumented endpoint, no service agreement, no stated retention policy.** May breach Google's Terms of Service. Set `enable_google_unofficial: false` to block it entirely. |
@@ -456,6 +463,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Same card side re-rendering → spoken once, not twice
 - [ ] A card with its own `[sound:]` audio → Anki's clip plays first, the spoken text follows, neither is cut off
 - [ ] Turn *Speak the card as it appears* off in the gear → next card is silent
+- [ ] `source_language: "auto"` on an English deck → the card is spoken in English, not the `speech_language` German
+- [ ] Same card again → spoken with no second detection request (check the log with `debug_logging: true`)
+- [ ] `source_language: "auto"` with no network → the card still speaks, using `speech_language`
+- [ ] Pin `front_speech_language` to a language → no detection happens at all
 - [ ] Set `tts_provider: "system"` → card auto-pronounce stops (needs a user gesture the browser will not grant)
 - [ ] Default (`tts_provider: "auto"`), **no German voice installed** → German audio is heard, status says *Spoken by Google (online voice)*
 - [ ] Press Pronounce again on the same text → instant (served from `user_files/tts/`)

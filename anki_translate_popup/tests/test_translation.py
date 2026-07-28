@@ -26,6 +26,11 @@ from anki_translate_popup.translation import (
     build_translator,
 )
 from anki_translate_popup.translation import base as base_module
+from anki_translate_popup.translation.base import (
+    DETECTION_SAMPLE_CHARS,
+    Translator,
+    TranslationResult,
+)
 
 
 class FakeResponse:
@@ -432,6 +437,56 @@ class GoogleUnofficialTest(unittest.TestCase):
 
 
 # -- factory -----------------------------------------------------------------
+
+
+class DetectLanguageTest(unittest.TestCase):
+    """Translator.detect: a translation with source "auto" already answers this."""
+
+    def translator(self, source_lang="de", text="the house"):
+        recorded = {}
+
+        class Stub(Translator):
+            name = "stub"
+
+            def translate(self_inner, request):
+                recorded["request"] = request
+                return TranslationResult(
+                    text=text,
+                    source_lang=source_lang,
+                    target_lang=request.target_lang,
+                    provider="stub",
+                )
+
+            def validate(self_inner):
+                return None
+
+        return Stub(timeout=1.0), recorded
+
+    def test_returns_what_the_provider_detected(self):
+        translator, _ = self.translator(source_lang="DE")
+        self.assertEqual(translator.detect("das Haus"), "de")
+
+    def test_asks_for_detection_not_a_fixed_source(self):
+        translator, recorded = self.translator()
+        translator.detect("das Haus")
+        self.assertEqual(recorded["request"].source_lang, "auto")
+
+    def test_only_a_sample_is_sent(self):
+        """A language is identifiable long before a whole card is."""
+        translator, recorded = self.translator()
+        translator.detect("wort " * 500)
+        self.assertLessEqual(len(recorded["request"].text), DETECTION_SAMPLE_CHARS)
+
+    def test_blank_text_never_reaches_the_provider(self):
+        translator, recorded = self.translator()
+        self.assertEqual(translator.detect("   "), "")
+        self.assertNotIn("request", recorded)
+
+    def test_an_undecided_provider_returns_empty(self):
+        for answer in ("", "auto"):
+            with self.subTest(answer=answer):
+                translator, _ = self.translator(source_lang=answer)
+                self.assertEqual(translator.detect("das Haus"), "")
 
 
 class BuildTranslatorTest(unittest.TestCase):

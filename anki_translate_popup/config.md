@@ -258,8 +258,16 @@ at the top of each list.
 
 Two details:
 
-* **`auto` needs a concrete source.** With `source_language: auto` there is no
-  configured language to follow, so that side falls back to `speech_language`.
+* **`auto` with an `auto` source asks the provider.** When neither this setting
+  nor the pair names a language, the card side is sent to your translation
+  provider to be identified, and the answer decides the voice. Only the first
+  200 characters go, and the result is cached, so a card costs at most one
+  detection however often it comes round. If the detection fails, the voice
+  falls back to `speech_language` rather than staying silent.
+
+  This is the one case where card auto-pronounce transmits text you did not
+  select. Two switches already prevent it: set `source_language` to a real
+  language, or turn `auto_pronounce_card` off.
 * **Your region survives.** With `speech_language: de-AT` and a pair of
   `de → en`, the front is spoken in `de-AT`, not the bare `de` the pair is
   written in. `preferred_voice` works the same way — it names one specific
