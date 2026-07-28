@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "anki_translate_popup"
 OUTPUT = ROOT / "anki_translate_popup.ankiaddon"
+LICENCE = ROOT / "LICENSE"
 
 EXCLUDED_DIRS = {"__pycache__", "user_files", ".pytest_cache", ".mypy_cache"}
 EXCLUDED_NAMES = {"meta.json", ".DS_Store"}
@@ -49,6 +50,9 @@ def main() -> int:
             # so the archive installs correctly on every platform.
             arcname = path.relative_to(SOURCE).as_posix()
             archive.write(path, arcname)
+        # AGPL: the licence travels with the distributed work, and it lives one
+        # level up from the add-on folder.
+        archive.write(LICENCE, LICENCE.name)
 
     size_kb = OUTPUT.stat().st_size / 1024
     print(f"Wrote {OUTPUT.name} ({len(files)} files, {size_kb:.1f} KiB)")

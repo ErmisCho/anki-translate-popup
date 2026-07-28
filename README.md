@@ -25,6 +25,7 @@ The entire interface is in English.
 6. [Manual testing checklist](#manual-testing-checklist)
 7. [Known limitations](#known-limitations)
 8. [Packaging as .ankiaddon](#packaging-as-ankiaddon)
+9. [Licence](#licence)
 
 ---
 
@@ -536,3 +537,11 @@ Install with **Tools → Add-ons → Install from file…**
 To publish on AnkiWeb, upload the `.ankiaddon` at
 <https://ankiweb.net/shared/addons/> — the `package` field in `manifest.json`
 must stay stable across versions, and `human_version` should be bumped.
+
+---
+
+## Licence
+
+AGPL-3.0-or-later — the same licence as Anki itself, which this add-on imports
+at runtime. The full text is in `LICENSE`, and a copy ships inside every
+`.ankiaddon` build.
