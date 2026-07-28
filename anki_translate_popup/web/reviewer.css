@@ -26,6 +26,12 @@
     --atp-error-bg: #fdecec;
     --atp-error-fg: #9b1c1c;
     --atp-result-bg: #f6f8fa;
+    /* The menu is a surface of its own, not a lighter patch of the popup: it
+       floats above the card and reads better with its own contrast. */
+    --atp-menu-bg: #ffffff;
+    --atp-menu-line: rgba(15, 23, 42, 0.09);
+    --atp-menu-ring: rgba(15, 23, 42, 0.06);
+    --atp-menu-shadow: 0 14px 34px rgba(15, 23, 42, 0.22);
     --atp-font-size: 14px;
     --atp-font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 
@@ -101,6 +107,12 @@
     --atp-error-bg: #4a2726;
     --atp-error-fg: #ffb4b0;
     --atp-result-bg: #343941;
+    /* Near-black, a step darker than the popup, so the menu sits clearly on
+       top of it rather than merging with it. */
+    --atp-menu-bg: #0b0c0f;
+    --atp-menu-line: rgba(255, 255, 255, 0.08);
+    --atp-menu-ring: rgba(255, 255, 255, 0.06);
+    --atp-menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.72);
 }
 
 .atp-popup[hidden] {
@@ -194,11 +206,13 @@
     max-height: 13.5em !important;
     overflow-y: auto !important;
     margin: 0 !important;
-    padding: 4px !important;
-    background: var(--atp-bg) !important;
-    border: 1px solid var(--atp-border) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 6px 18px var(--atp-shadow) !important;
+    padding: 5px !important;
+    background: var(--atp-menu-bg) !important;
+    border: 1px solid var(--atp-menu-line) !important;
+    border-radius: 11px !important;
+    /* The inset hairline is what stops a near-black panel reading as a hole
+       punched in the popup: it gives the surface a lit top edge. */
+    box-shadow: var(--atp-menu-shadow), inset 0 1px 0 var(--atp-menu-ring) !important;
 }
 
 .atp-popup .atp-menu[hidden] {
@@ -219,10 +233,11 @@
 .atp-popup .atp-menu-item {
     display: block !important;
     margin: 0 !important;
-    padding: 4px 8px !important;
+    padding: 5px 9px !important;
+    transition: background-color 120ms ease, color 120ms ease !important;
     background: transparent !important;
     border: 0 !important;
-    border-radius: 5px !important;
+    border-radius: 7px !important;
     font-size: 0.78em !important;
     font-weight: 600 !important;
     color: var(--atp-fg) !important;
@@ -235,6 +250,19 @@
 
 .atp-popup .atp-menu-item:hover {
     background: var(--atp-hover) !important;
+}
+
+.atp-popup .atp-menu-item:active {
+    background: var(--atp-active) !important;
+}
+
+/* One hairline where the switches end and the pickers begin, so eight rows
+   read as two groups instead of a list. */
+.atp-popup .atp-menu-toggle + .atp-menu-voice {
+    margin-top: 5px !important;
+    padding-top: 8px !important;
+    border-top: 1px solid var(--atp-menu-line) !important;
+    border-radius: 0 0 7px 7px !important;
 }
 
 .atp-popup .atp-menu-item:focus-visible {

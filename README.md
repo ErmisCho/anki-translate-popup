@@ -432,6 +432,9 @@ Set up a deck with German cards, then work through these.
 
 - [ ] **Light mode** → readable, correct contrast
 - [ ] **Dark mode** (Tools → Preferences → Appearance) → readable, correct contrast
+- [ ] Open the gear in dark mode → the menu is near-black and clearly a panel above the popup, not part of it
+- [ ] Open it in light mode → white, with the same grouping and no heavy borders
+- [ ] Hover a row → it lights briefly rather than snapping; the switches and the pickers read as two groups
 - [ ] Toggle the theme **while the popup is open** → colours follow immediately
 - [ ] Try a deck with a **heavily styled card template** → popup is unaffected
 - [ ] Change `popup_font_size` → takes effect without restarting
