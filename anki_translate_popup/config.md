@@ -174,6 +174,10 @@ selection. Set to `false` if you would rather press the speaker yourself.
 Speak the card as soon as it appears, before you touch anything. Shows the
 German, hears the German.
 
+It is queued behind the card's own `[sound:]` rather than replacing it, so
+neither is cut off. Starting a new pronunciation yourself — selecting text, or
+pressing a pronounce key — does stop it: only one thing speaks at a time.
+
 By default only the **question side** is spoken, and only its **first line** —
 see `card_speech_scope` and `auto_pronounce_answer` below.
 

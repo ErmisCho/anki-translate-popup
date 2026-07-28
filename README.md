@@ -461,6 +461,10 @@ Set up a deck with German cards, then work through these.
 - [ ] Press Pronounce again on the same text → instant (served from `user_files/tts/`)
 - [ ] With a **German system voice installed** → uses it, status names the voice, nothing goes online
 - [ ] Press Pronounce **twice quickly** → the first stops, no overlap
+- [ ] Select text **while the card is being auto-pronounced** → the card audio stops, only the selection is heard
+- [ ] Speak a selection, then reveal the answer → the leftover speech stops as the new side appears
+- [ ] Press **x** while a card's own `[sound:]` is playing → the clip stops and the side is spoken, not both at once
+- [ ] Close the popup while a card's `[sound:]` plays → the clip keeps going; the popup only cancels what it started
 - [ ] Pronounce **after translating** → the **original German** is spoken, not the English
 - [ ] Set the pair to **EN → EN** and press Pronounce → an English voice speaks it, not the German one
 - [ ] Set `speech_language: "de-AT"` with a **DE → EN** pair → still the Austrian voice, not a bare `de` one

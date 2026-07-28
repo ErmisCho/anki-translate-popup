@@ -916,6 +916,11 @@
 
     /** Called from Python each time a card side is shown, and on request. */
     function onCardText(next) {
+        // A side has appeared, so anything still being said belongs to the card
+        // before it. Only the page's own speech is cancelled: Python is queueing
+        // this card's audio as we speak, and clearing the queue would take that
+        // with it.
+        stopBrowserSpeech();
         cardText = {
             prompt: (next && next.prompt) || "",
             promptLang: (next && next.promptLang) || "",
@@ -941,7 +946,11 @@
 
     // -- pronunciation --------------------------------------------------------
 
-    function stopSpeech() {
+    /**
+     * Cancel only what the page itself is saying. Anki's audio queue is left
+     * alone, which matters while it is mid-way through a card's own [sound:].
+     */
+    function stopBrowserSpeech() {
         if (globalThis.speechSynthesis) {
             globalThis.speechSynthesis.cancel();
         }
@@ -950,7 +959,13 @@
         // Also cancels speech that is only waiting for a language: stopping
         // means stopping, and a closed popup must not speak on a late reply.
         speakWhenDetected = false;
-        // Only reach across the bridge if online audio could actually be playing.
+    }
+
+    /** Closing the popup silences what the popup started, and nothing else. */
+    function stopSpeech() {
+        stopBrowserSpeech();
+        // Only reach across the bridge if the popup's own online audio could
+        // actually be playing: a card's [sound:] is not the popup's to cancel.
         if (onlineSpeechActive && typeof pycmd === "function") {
             onlineSpeechActive = false;
             pycmd(BRIDGE + "stop_speech:");
@@ -958,14 +973,18 @@
     }
 
     /**
-     * The stop key. Silences what is playing now and nothing more - the next
-     * card, or the next press of a pronounce key, speaks as usual.
+     * Silence everything, whoever started it: the stop key, and every new
+     * pronunciation.
+     *
+     * Unconditional where stopSpeech is not, because card auto-pronounce is
+     * queued by Python through av_player without the page ever hearing about
+     * it - onlineSpeechActive is false for exactly the audio most likely to be
+     * playing underneath. The cost is that a card's own [sound:] is cut off
+     * too, which is the point: one pronunciation at a time.
      */
     function stopAllSpeech() {
-        stopSpeech();
-        // Unconditional, unlike stopSpeech: card auto-pronounce is queued by
-        // Python without the webview ever knowing, so onlineSpeechActive is
-        // false for exactly the audio the user most wants to cut off.
+        stopBrowserSpeech();
+        onlineSpeechActive = false;
         if (typeof pycmd === "function") {
             pycmd(BRIDGE + "stop_speech:");
         }
@@ -1237,7 +1256,9 @@
         }
         lang = lang || config.speechLanguage;
 
-        stopSpeech(); // requirement: never overlap two pronunciations
+        // Never overlap two pronunciations - including one Python queued for the
+        // card, which the page is otherwise unaware of.
+        stopAllSpeech();
 
         var mode = config.ttsProvider || "auto";
         if (mode === "google_unofficial") {
