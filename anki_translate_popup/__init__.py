@@ -379,6 +379,10 @@ _LANGUAGE_OPTIONS = (
 #: handling as above; parse_config is what rejects a value off the list.
 _CHOICE_OPTIONS = ("voice_gender", "tts_provider")
 
+#: Toggles that decide whether the card on screen is spoken. Switching one on
+#: should be audible now rather than one card later.
+_CARD_SPEECH_OPTIONS = ("auto_pronounce_card", "auto_pronounce_answer")
+
 ANSWER_DIVIDER = "<hr id=answer>"
 
 # Deliberately not anki.utils.strip_html: that call needs Anki's Rust i18n
@@ -816,7 +820,20 @@ def _set_option(raw_payload: str) -> None:
         return
 
     mw.addonManager.writeConfig(__name__, raw)
+    _apply_config_change()
     logger.debug("Option %s set to %s", key, value)
+
+    # Turning card speech on is a request to hear this card, not the next one.
+    # The dedupe is cleared first: this side was already marked as spoken.
+    if value and key in _CARD_SPEECH_OPTIONS:
+        global _last_auto_spoken
+        _last_auto_spoken = None
+        reviewer = getattr(mw, "reviewer", None)
+        card = getattr(reviewer, "card", None)
+        if card is not None and getattr(mw, "state", "") == "review":
+            _on_card_side_shown(
+                card, is_answer=getattr(reviewer, "state", "question") == "answer"
+            )
 
 
 def _start_speech(web: Any, request_id: int, text: str, lang: str = "") -> None:
@@ -1124,9 +1141,9 @@ def _set_languages(raw_payload: str, deck_id: Optional[int] = None) -> None:
         logger.warning("Refusing invalid language change (%s -> %s): %s", source, target, exc)
         return
 
-    # writeConfig fires setConfigUpdatedAction, which re-pushes the config to
-    # every open webview - that is how the other screens stay in step.
+    # writeConfig only writes meta.json, so the re-push is ours to make.
     mw.addonManager.writeConfig(__name__, raw)
+    _apply_config_change()
     logger.debug(
         "Language pair set to %s -> %s%s",
         source,
@@ -1213,7 +1230,21 @@ def _start_translation(
 
 
 def on_config_updated(_new_config: Any) -> None:
-    """Push edited settings into an already-open reviewer page."""
+    """Anki's config dialog saved: same work as a change made in the popup."""
+    _apply_config_change()
+
+
+def _apply_config_change() -> None:
+    """Make a configuration change take effect in every open screen.
+
+    Called after this add-on's own writeConfig as well as from Anki's hook.
+    AddonManager.writeConfig only writes meta.json - the updated action is
+    fired by the config dialog and nothing else (aqt/addons.py) - so a change
+    made in the gear menu would otherwise reach nothing but the single field
+    the page had already flipped for itself: a second open webview, the Qt
+    shortcuts and the cache settings all stayed on the old values until Anki
+    was restarted.
+    """
     global _cache, _cache_lifetime_days
     with _cache_lock:
         _cache = None

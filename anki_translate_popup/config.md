@@ -10,6 +10,10 @@ and `auto_pronounce` below to turn that off.
 
 Changes take effect immediately — you do not need to restart Anki.
 
+Every change takes effect at once — from this dialog or from the gear — with no
+restart. Turning card speech on speaks the card already on screen rather than
+waiting for the next one.
+
 The switches you are most likely to change are also on the **gear icon** in the
 popup itself — auto-translate selection, auto-pronounce selection,
 auto-pronounce card and its answer, abbreviation expansion, show examples —

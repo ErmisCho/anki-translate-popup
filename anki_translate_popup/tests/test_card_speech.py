@@ -467,6 +467,63 @@ class SpeechLanguagePerSideTest(unittest.TestCase):
         )
 
 
+class GearOptionAppliesNowTest(unittest.TestCase):
+    """A gear change must take effect on the spot, not after a restart.
+
+    AddonManager.writeConfig only writes meta.json; the config dialog is the
+    only thing that fires the updated action, so the re-push is ours to make.
+    """
+
+    def setUp(self):
+        addon._last_auto_spoken = None
+
+    def write(self, key, value, *, reviewer=None, state="review"):
+        raw = dict(DEFAULTS)
+        manager = mock.Mock()
+        manager.getConfig.return_value = raw
+        fake_mw = mock.Mock(addonManager=manager, state=state, reviewer=reviewer)
+        with mock.patch.object(addon, "mw", fake_mw), mock.patch.object(
+            addon, "_apply_config_change"
+        ) as applied, mock.patch.object(addon, "_on_card_side_shown") as shown:
+            addon._set_option(json.dumps({"key": key, "value": value}))
+        return manager, applied, shown
+
+    def test_a_written_option_is_applied_immediately(self):
+        manager, applied, _ = self.write("show_examples", False)
+        manager.writeConfig.assert_called_once()
+        applied.assert_called_once()
+
+    def test_turning_card_speech_on_speaks_the_card_on_screen(self):
+        reviewer = mock.Mock(card=mock.Mock(), state="question")
+        _, _, shown = self.write("auto_pronounce_card", True, reviewer=reviewer)
+        shown.assert_called_once()
+        self.assertIs(shown.call_args.kwargs["is_answer"], False)
+
+    def test_the_dedupe_cannot_swallow_that_playback(self):
+        """This side was already marked spoken; the toggle is a fresh request."""
+        addon._last_auto_spoken = (1, False)
+        reviewer = mock.Mock(card=mock.Mock(), state="question")
+        self.write("auto_pronounce_card", True, reviewer=reviewer)
+        self.assertIsNone(addon._last_auto_spoken)
+
+    def test_turning_it_off_speaks_nothing(self):
+        reviewer = mock.Mock(card=mock.Mock(), state="question")
+        _, _, shown = self.write("auto_pronounce_card", False, reviewer=reviewer)
+        shown.assert_not_called()
+
+    def test_an_unrelated_toggle_speaks_nothing(self):
+        reviewer = mock.Mock(card=mock.Mock(), state="question")
+        _, _, shown = self.write("show_examples", True, reviewer=reviewer)
+        shown.assert_not_called()
+
+    def test_outside_the_reviewer_nothing_is_spoken(self):
+        reviewer = mock.Mock(card=mock.Mock(), state="question")
+        _, _, shown = self.write(
+            "auto_pronounce_card", True, reviewer=reviewer, state="deckBrowser"
+        )
+        shown.assert_not_called()
+
+
 class ShortcutLanguageTest(unittest.TestCase):
     """x and c must speak a card in the language the card itself was spoken in."""
 
