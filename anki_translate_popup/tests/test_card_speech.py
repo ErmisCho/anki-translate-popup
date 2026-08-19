@@ -704,9 +704,34 @@ class SpeechSegmentTest(unittest.TestCase):
                 seen,
             )
 
-    def test_a_named_pair_is_one_clip_and_asks_nothing(self):
+    def test_a_named_pair_is_still_checked_against_the_text(self):
+        """The pair is a guess about the layout, not a statement about the text.
+
+        It says the front is German. A reversed card puts the English there,
+        and this used to read it out in German with "speak only DE" on.
+        """
         segments, seen = self.segments(
             [self.GERMAN_LINE, self.ENGLISH_LINE], {}, source_language="de"
+        )
+        self.assertIn(self.GERMAN_LINE + " " + self.ENGLISH_LINE, seen)
+        # Nothing came back, so the pair still stands - it beats a global that
+        # knows nothing of the deck.
+        self.assertEqual([lang for _, lang in segments], ["de-DE"])
+
+    def test_a_named_pair_yields_to_what_the_text_turns_out_to_be(self):
+        """The English front of a reversed card, on a de -> en pair."""
+        segments, _ = self.segments(
+            [self.ENGLISH_LINE], {self.ENGLISH_LINE: "en"}, source_language="de"
+        )
+        self.assertEqual([lang for _, lang in segments], ["en"])
+
+    def test_a_pinned_voice_is_taken_at_its_word(self):
+        """Pinning is the way to say "never mind the text, speak German"."""
+        segments, seen = self.segments(
+            [self.GERMAN_LINE, self.ENGLISH_LINE],
+            {},
+            source_language="de",
+            front_speech_language="de",
         )
         self.assertEqual(len(segments), 1)
         self.assertEqual(segments[0][1], "de-DE")
@@ -1033,15 +1058,22 @@ class DetectionNeededTest(unittest.TestCase):
         raw.update(overrides)
         return parse_config(raw)
 
-    def test_auto_source_needs_detection_for_the_front(self):
-        config = self.config(source_language="auto")
-        self.assertTrue(config.speech_language_needs_detection(is_answer=False))
-        # The target can never be "auto", so the back is always known.
-        self.assertFalse(config.speech_language_needs_detection(is_answer=True))
+    def test_an_unpinned_side_is_a_guess_whatever_the_pair_says(self):
+        for pair in ("auto", "de"):
+            with self.subTest(source_language=pair):
+                config = self.config(source_language=pair)
+                self.assertTrue(
+                    config.speech_language_needs_detection(is_answer=False)
+                )
 
-    def test_a_named_pair_needs_nothing(self):
+    def test_the_back_is_a_guess_too_however_concrete_the_target(self):
+        """target_language is always a real language, which read as certainty.
+
+        It is nothing of the kind on a reversed card, where the back holds the
+        word being learnt.
+        """
         config = self.config(source_language="de", target_language="en")
-        self.assertFalse(config.speech_language_needs_detection(is_answer=False))
+        self.assertTrue(config.speech_language_needs_detection(is_answer=True))
 
     def test_an_explicit_voice_language_beats_an_auto_pair(self):
         """Asked for French, the side is French - there is nothing to detect."""

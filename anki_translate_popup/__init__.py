@@ -212,8 +212,13 @@ def _speech_segments(
     # too short to speak for itself. `context` is that whole side even when only
     # its first line is spoken: identifying "der Aspekt, -e" by itself is the
     # very thing this exists to avoid.
-    side_language = config.with_configured_region(
-        _detect_language(config, context or " ".join(lines))
+    detected = _detect_language(config, context or " ".join(lines))
+    side_language = (
+        config.with_configured_region(detected)
+        if detected
+        # Nothing could be found: the pair is a guess, but a better-informed one
+        # than speech_language, which knows nothing of the deck in front of you.
+        else config.speech_language_for(is_answer=is_answer)
     )
 
     segments: List[SpeechSegment] = []
@@ -624,7 +629,12 @@ def _push_card_text(
         """
         if not config.speech_language_needs_detection(is_answer=answer):
             return config.speech_language_for(is_answer=answer)
-        return config.with_configured_region(_cached_detection(config, context))
+        detected = _cached_detection(config, context)
+        if not detected:
+            # Nothing paid for yet. The pair, not speech_language: the keys must
+            # not read the back of a de -> en card in German while it waits.
+            return config.speech_language_for(is_answer=answer)
+        return config.with_configured_region(detected)
 
     def side(rendered: str, *, answer: bool) -> Tuple[str, str]:
         """(what is spoken, what identifies it)."""
@@ -646,8 +656,8 @@ def _push_card_text(
             # "front is the source, back is the target" is only true of a card
             # laid out the way the pair describes; a reversed card has the
             # English on the front, and the guess is then exactly backwards.
-            "promptGuessed": config.front_speech_language == "auto",
-            "answerGuessed": config.back_speech_language == "auto",
+            "promptGuessed": not config.speech_language_is_pinned(is_answer=False),
+            "answerGuessed": not config.speech_language_is_pinned(is_answer=True),
         }
     except Exception:  # noqa: BLE001 - never let this break the reviewer
         logger.exception("Could not read the card text for the pronounce shortcuts")

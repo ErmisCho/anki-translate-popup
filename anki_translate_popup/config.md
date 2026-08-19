@@ -260,24 +260,28 @@ reading both with one voice gives an English answer a German accent.
 
 | Value | Meaning |
 | --- | --- |
-| `auto` | Follow the translation pair: front = `source_language`, back = `target_language`. |
+| `auto` | Identify the side from its own text, falling back to the pair: front = `source_language`, back = `target_language`. |
 | a code | Always that language, e.g. `en`, `de-AT`, `el`. |
 
-`auto` is right whenever the deck matches the pair in the popup header, which
-is the normal case — swap the pair and the voices swap with it. Pin a side when
-your deck does not match, for instance a German deck you translate into English
-but whose backs are written in Greek.
+`auto` is right for almost every deck, including a mixed one — swap the pair
+and the voices swap with it, and a card that does not match the pair is still
+read correctly. Pin a side to stop it being identified at all, for instance to
+keep a proper name read in German rather than in whatever it looks like.
 
 Both are on the **gear menu** as *Voice for the front* and *Voice for the back*, with **Auto**
 at the top of each list.
 
 Two details:
 
-* **`auto` with an `auto` source asks the provider.** When neither this setting
-  nor the pair names a language, the card side is sent to your translation
-  provider to be identified, and the answer decides the voice. Only the first
-  200 characters go, and the result is cached, so a card costs at most one
-  detection however often it comes round.
+* **`auto` asks the provider.** An unpinned side is a guess, so the card side
+  is sent to your translation provider to be identified and the answer decides
+  the voice. Only the first 200 characters go, and the result is cached, so a
+  card costs at most one detection however often it comes round. Nothing came
+  back — you are offline, the provider refused — and the pair stands instead.
+
+  The pair alone used to be enough to settle it, which is wrong on a reversed
+  card: `de → en` says the front is German, the front holds the English, and
+  an English sentence was read out in German while *Speak only* was set to DE.
 
   The **whole side** is what gets identified, even when only its first line is
   spoken. A headword on its own — `die Aktie, -n` is thirteen characters of

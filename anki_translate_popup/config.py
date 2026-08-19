@@ -151,14 +151,22 @@ class AddonConfig:
             chosen = self.target_language if is_answer else self.source_language
         return chosen
 
-    def speech_language_needs_detection(self, *, is_answer: bool) -> bool:
-        """Whether the language of this side can only be found by looking.
+    def speech_language_is_pinned(self, *, is_answer: bool) -> bool:
+        """Whether the user named this side's voice themselves."""
+        chosen = self.back_speech_language if is_answer else self.front_speech_language
+        return chosen != "auto"
 
-        True when neither the voice setting nor the pair names one, which is
-        the case a deck of mixed or unknown languages lands in. The caller has
-        to ask the provider; the config has nothing left to offer.
+    def speech_language_needs_detection(self, *, is_answer: bool) -> bool:
+        """Whether this side's language is a guess, and so worth checking.
+
+        True whenever the user has not pinned a voice for the side. The pair is
+        not an answer, only a better-informed guess: "front is the source, back
+        is the target" describes a card laid out the way the pair says, and a
+        reversed card has it exactly backwards - which is how an English front
+        came to be read aloud in German while "speak only DE" was on. A pinned
+        voice is taken at its word and never second-guessed.
         """
-        return self._pair_speech_language(is_answer=is_answer) == "auto"
+        return not self.speech_language_is_pinned(is_answer=is_answer)
 
     def speaks_language(self, lang: str) -> bool:
         """Whether automatic speech is allowed to say something in ``lang``.
