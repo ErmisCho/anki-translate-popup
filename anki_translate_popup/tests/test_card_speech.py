@@ -236,8 +236,8 @@ class AutoPronounceGatingTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         # The dedupe guard is module state; isolate each test from the last.
-        addon._last_auto_spoken = None
-        self.addCleanup(setattr, addon, "_last_auto_spoken", None)
+        addon._last_side_shown = None
+        self.addCleanup(setattr, addon, "_last_side_shown", None)
         mw = mock.patch.object(addon, "mw", mock.MagicMock(), create=True)
         mw.start()
         self.addCleanup(mw.stop)
@@ -300,6 +300,22 @@ class AutoPronounceGatingTest(unittest.TestCase):
             addon.on_reviewer_did_show_question(card)
         self.assertEqual(len(self.scheduled), 3)
 
+    def test_it_speaks_again_even_when_the_answer_is_never_spoken(self):
+        """The default case, and the one that was broken.
+
+        With "Also speak the answer" off the answer side returns before the
+        guard is reached, so the mark left by the question was still standing
+        when Again brought that same question back. A card in learning was
+        spoken the first time round and silent every time after.
+        """
+        card = FakeCard()
+        card.id = 42
+        with self.configure(auto_pronounce_card=True, auto_pronounce_answer=False):
+            addon.on_reviewer_did_show_question(card)
+            addon.on_reviewer_did_show_answer(card)  # unspoken, but shown
+            addon.on_reviewer_did_show_question(card)
+        self.assertEqual(len(self.scheduled), 2)
+
     def test_a_sync_silences_the_card(self):
         with mock.patch.object(addon, "_qt_stop_speech") as stop:
             addon.on_sync_will_start()
@@ -309,6 +325,41 @@ class AutoPronounceGatingTest(unittest.TestCase):
         with self.configure(auto_pronounce_card=False):
             addon.on_reviewer_did_show_question(FakeCard())
         self.assertEqual(self.scheduled, [])
+
+    def test_a_gate_that_closes_says_which_one(self):
+        """Silence and "the add-on never ran" must not look the same.
+
+        Read from a log, an empty stretch was the only evidence either way,
+        and the wrong reading cost four rounds of fixing a path that was
+        switched off.
+        """
+        cases = (
+            ({"auto_pronounce_card": False}, False, "as it appears' is off"),
+            (
+                {"auto_pronounce_card": True, "auto_pronounce_answer": False},
+                True,
+                "'also speak the answer' is off",
+            ),
+            (
+                {"auto_pronounce_card": True, "tts_provider": "system"},
+                False,
+                "the system voice",
+            ),
+        )
+        for overrides, is_answer, expected in cases:
+            with self.subTest(**overrides):
+                addon._last_side_shown = None
+                with self.configure(**overrides), self.assertLogs(
+                    addon.logger, level="DEBUG"
+                ) as logs:
+                    if is_answer:
+                        addon.on_reviewer_did_show_answer(FakeCard())
+                    else:
+                        addon.on_reviewer_did_show_question(FakeCard())
+                self.assertTrue(
+                    any(expected in line for line in logs.output),
+                    logs.output,
+                )
 
     def test_system_tts_is_skipped(self):
         """A system voice needs a user gesture, which a card appearing is not."""
@@ -722,7 +773,7 @@ class GearOptionAppliesNowTest(unittest.TestCase):
     """
 
     def setUp(self):
-        addon._last_auto_spoken = None
+        addon._last_side_shown = None
 
     def write(self, key, value, *, reviewer=None, state="review"):
         raw = dict(DEFAULTS)
@@ -748,10 +799,10 @@ class GearOptionAppliesNowTest(unittest.TestCase):
 
     def test_the_dedupe_cannot_swallow_that_playback(self):
         """This side was already marked spoken; the toggle is a fresh request."""
-        addon._last_auto_spoken = (1, False)
+        addon._last_side_shown = (1, False)
         reviewer = mock.Mock(card=mock.Mock(), state="question")
         self.write("auto_pronounce_card", True, reviewer=reviewer)
-        self.assertIsNone(addon._last_auto_spoken)
+        self.assertIsNone(addon._last_side_shown)
 
     def test_turning_it_off_speaks_nothing_and_stops_what_is_playing(self):
         reviewer = mock.Mock(card=mock.Mock(), state="question")
@@ -849,8 +900,8 @@ class PopupClosesOnANewSideTest(unittest.TestCase):
     """Only a card side appearing may take the popup away."""
 
     def setUp(self):
-        addon._last_auto_spoken = None
-        self.addCleanup(setattr, addon, "_last_auto_spoken", None)
+        addon._last_side_shown = None
+        self.addCleanup(setattr, addon, "_last_side_shown", None)
 
     def payload(self, **kwargs):
         web = mock.Mock()
@@ -1020,8 +1071,8 @@ class PushCardTextTest(unittest.TestCase):
             patcher = mock.patch.object(addon, target, value, create=True)
             patcher.start()
             self.addCleanup(patcher.stop)
-        addon._last_auto_spoken = None
-        self.addCleanup(setattr, addon, "_last_auto_spoken", None)
+        addon._last_side_shown = None
+        self.addCleanup(setattr, addon, "_last_side_shown", None)
 
     def configure(self, **overrides):
         raw = dict(DEFAULTS)

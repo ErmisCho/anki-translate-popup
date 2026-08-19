@@ -560,26 +560,31 @@ def card_side_text(rendered: str, *, is_answer: bool, first_line_only: bool = Fa
     return lines[0] if first_line_only else " ".join(lines)
 
 
-#: The card side spoken automatically last, as (card id, is_answer). A side is
-#: never auto-spoken twice running: Anki re-emits its hooks whenever the
-#: reviewer is rebuilt - after a sync, an edit, or the More menu - and a
-#: rebuild is not the user asking for the card again. A two-second window used
-#: to stand in for this and let anything slower through.
-_last_auto_spoken: Optional[Tuple[int, bool]] = None
+#: The card side shown last, as (card id, is_answer). A side is never
+#: auto-spoken twice running: Anki re-emits its hooks whenever the reviewer is
+#: rebuilt - after a sync, an edit, or the More menu - and a rebuild is not the
+#: user asking for the card again. A two-second window used to stand in for
+#: this and let anything slower through.
+_last_side_shown: Optional[Tuple[int, bool]] = None
 
 
 def _is_duplicate_card_side(card: Any, is_answer: bool) -> bool:
-    """Whether this side was the last one spoken automatically.
+    """Whether this side is the one that was on screen a moment ago.
 
     Only the side immediately before counts, so answering a card and meeting it
     again still speaks: something else was shown in between. A rebuild of the
     same side, however long after, does not.
+
+    The side shown, not the side spoken. Recording only what was spoken made
+    the answer transparent - it is unspoken by default - so the mark left by a
+    question was still standing when Again brought that same question back, and
+    a card in learning was silent every time round but the first.
     """
-    global _last_auto_spoken
+    global _last_side_shown
     side = (int(getattr(card, "id", 0) or 0), is_answer)
-    if _last_auto_spoken == side:
+    if _last_side_shown == side:
         return True
-    _last_auto_spoken = side
+    _last_side_shown = side
     return False
 
 
@@ -693,6 +698,9 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     player has no such restriction.
     """
     config, error = _load_config()
+    # Asked before any gate below can return, because it records as well as
+    # answers: a side nobody speaks still separates a card from itself.
+    repeated = _is_duplicate_card_side(card, is_answer)
     if not is_answer:
         web = getattr(getattr(mw, "reviewer", None), "web", None)
         if web is not None:
@@ -700,17 +708,31 @@ def _on_card_side_shown(card: Any, *, is_answer: bool) -> None:
     # Before the auto-pronounce gates: the shortcuts stay usable even when
     # nothing is spoken automatically, which is most of their point.
     _push_card_text(card, config, is_answer=is_answer, new_side=True)
+    # Each of these says which one closed. Returning in silence made "the
+    # add-on decided not to speak" and "the add-on never ran" the same empty
+    # log, and telling those apart from a report took four rounds.
     if error or not config.auto_pronounce_card:
+        logger.debug(
+            "Not speaking this side: %s",
+            "the config could not be read"
+            if error
+            else "'speak the card as it appears' is off",
+        )
         return
     # The answer side is what the user is trying to recall, so speaking it is
     # off unless asked for.
     if is_answer and not config.auto_pronounce_answer:
+        logger.debug("Not speaking this side: 'also speak the answer' is off")
         return
     # A system voice would need the same missing gesture, so this feature is
     # only available through the online provider.
     if config.tts_provider == "system":
+        logger.debug(
+            "Not speaking this side: the voice source is the system voice, "
+            "which a card appearing cannot use"
+        )
         return
-    if _is_duplicate_card_side(card, is_answer):
+    if repeated:
         logger.debug("Skipping duplicate auto-pronounce for the same card side")
         return
 
@@ -962,7 +984,7 @@ def _apply_card_speech_toggle(key: str, enabled: bool) -> None:
     card is spoken, and carrying on until the clip ends reads as a switch that
     did nothing.
     """
-    global _last_auto_spoken
+    global _last_side_shown
     if not enabled:
         _qt_stop_speech()
         return
@@ -985,7 +1007,7 @@ def _apply_card_speech_toggle(key: str, enabled: bool) -> None:
 
     # The dedupe is cleared last, and only once a side has been settled on:
     # that side is already marked as spoken and would swallow this playback.
-    _last_auto_spoken = None
+    _last_side_shown = None
     _on_card_side_shown(card, is_answer=is_answer)
 
 
