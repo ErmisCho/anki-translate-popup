@@ -377,6 +377,20 @@ class DebugLoggingTest(unittest.TestCase):
     def test_the_page_is_told_as_well(self):
         self.assertIs(parse_config(config_with(debug_logging=True)).for_webview()["debug"], True)
 
+    def test_the_logger_is_named_for_ankis_addon_log_file(self):
+        """aqt.log only gives a rotating file to loggers under "addon.".
+
+        Without the prefix the records go to stdout alone, which is nowhere at
+        all when Anki was started from the desktop - the case every bug report
+        from another machine arrives in.
+        """
+        import anki_translate_popup as addon
+        from anki_translate_popup import cache
+
+        self.assertTrue(addon.logger.name.startswith("addon."), addon.logger.name)
+        # One logger, so aqt attaches one handler and no record is written twice.
+        self.assertIs(cache.logger, addon.logger)
+
 
 class ThemeTest(unittest.TestCase):
     def test_default_follows_anki(self):

@@ -21,7 +21,9 @@ from typing import Callable, Iterator, List, Optional, Tuple
 from .examples import Example
 from .translation.base import TranslationResult
 
-logger = logging.getLogger(__name__)
+# The same logger, not a child: aqt.log hands every new "addon." logger its own
+# file handler, and a child would write each record to the file twice.
+logger = logging.getLogger("addon.anki_translate_popup")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS translations (

@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from anki_translate_popup.cache import TranslationCache, make_key, prune_audio_cache
+from anki_translate_popup.cache import (
+    TranslationCache,
+    logger,
+    make_key,
+    prune_audio_cache,
+)
 from anki_translate_popup.examples import Example
 from anki_translate_popup.translation.base import TranslationResult
 
@@ -270,7 +275,7 @@ class ResilienceTest(CacheTestBase):
 
         # A broken cache degrades to a miss rather than breaking translation -
         # but the failure is logged, never silently swallowed.
-        with self.assertLogs("anki_translate_popup.cache", level="ERROR") as logs:
+        with self.assertLogs(logger.name, level="ERROR") as logs:
             self.assertIsNone(cache.get("deepl", "de", "en", "das Haus"))
             cache.set("deepl", "de", "en", "das Haus", result())  # must not raise
             self.assertEqual(cache.count(), 0)
@@ -309,7 +314,7 @@ class ResilienceTest(CacheTestBase):
                 sidecar.unlink()
         self.path.write_bytes(b"this is definitely not a sqlite database")
 
-        with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+        with self.assertLogs(logger.name, level="ERROR"):
             self.assertEqual(cache.enforce_limit(), 0)
 
 
@@ -373,14 +378,14 @@ class AudioPruneTest(unittest.TestCase):
             return real_stat(self, *args, **kwargs)
 
         with mock.patch.object(Path, "stat", fail_on_mp3):
-            with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+            with self.assertLogs(logger.name, level="ERROR"):
                 self.assertEqual(prune_audio_cache(self.directory, 10), 0)
         self.assertTrue(kept.exists())
 
     def test_locked_file_is_skipped_not_raised(self):
         locked = self.write("a.mp3", 1000, 1)
         with mock.patch.object(Path, "unlink", side_effect=OSError("locked")):
-            with self.assertLogs("anki_translate_popup.cache", level="ERROR"):
+            with self.assertLogs(logger.name, level="ERROR"):
                 self.assertEqual(prune_audio_cache(self.directory, 10), 0)
         self.assertTrue(locked.exists())
 

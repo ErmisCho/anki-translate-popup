@@ -38,11 +38,34 @@ BRIDGE_PREFIX = "anki_translate_popup:"
 MAX_TEXT_LENGTH = 5000
 
 _ADDON_DIR = Path(__file__).resolve().parent
+
 _CACHE_PATH = _ADDON_DIR / "user_files" / "cache.sqlite"
 #: Synthesised audio is kept on disk so repeating a card costs no network.
 _TTS_CACHE_DIR = _ADDON_DIR / "user_files" / "tts"
 
-logger = logging.getLogger(__name__)
+#: Named for aqt.log, which gives every "addon." logger its own rotating file
+#: under <Anki base>/logs/addons/. Under __name__ these records only reached
+#: stdout, which a Windows GUI launch discards - so a report from another
+#: machine had no log to attach. Fixed rather than __name__ because an AnkiWeb
+#: install names the package after its numeric id.
+LOGGER_NAME = "addon.anki_translate_popup"
+logger = logging.getLogger(LOGGER_NAME)
+
+
+def _version() -> str:
+    """The version in manifest.json, or "?" - never a reason not to load.
+
+    Logged at startup because "is the build I just handed you the one running?"
+    cost two rounds of guessing, and the folder name answers the other half:
+    AnkiWeb installs under a numeric id, an install-from-file under `package`,
+    and seeing both means two copies are hooked to the same reviewer.
+    """
+    try:
+        return json.loads(
+            (_ADDON_DIR / "manifest.json").read_text(encoding="utf-8")
+        )["human_version"]
+    except Exception:  # noqa: BLE001 - a missing version must not stop the add-on
+        return "?"
 
 try:  # pragma: no cover - exercised only inside Anki
     import aqt
@@ -1451,7 +1474,7 @@ def setup() -> None:
     if sync_will_start is not None:
         sync_will_start.append(on_sync_will_start)
     gui_hooks.focus_did_change.append(_sync_qt_speech_shortcuts)
-    logger.info("%s loaded", ADDON_NAME)
+    logger.info("%s %s loaded from %s", ADDON_NAME, _version(), _ADDON_DIR.name)
 
 
 if _INSIDE_ANKI:  # pragma: no cover - exercised only inside Anki
