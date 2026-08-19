@@ -8,3 +8,6 @@ anki_translate_popup/meta.json
 
 __pycache__/
 *.py[cod]
+
+# Local portfolio dashboard, generated per-machine.
+PORTFOLIO.md
